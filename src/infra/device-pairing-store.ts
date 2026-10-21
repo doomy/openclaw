@@ -136,7 +136,8 @@ function runDevicePairingStoreMutation<T>(
     return result.value;
   };
   if (bound) {
-    // The binding already belongs to the synchronous outer pairing transaction.
+    // Bound failures abort the outer transaction; callers that catch and continue
+    // need their own savepoint to keep PostgreSQL usable.
     return apply(bound.database);
   }
   const databaseOptions = resolveDevicePairingStateDbOptions(baseDir);
