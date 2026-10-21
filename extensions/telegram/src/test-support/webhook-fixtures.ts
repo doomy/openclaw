@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import type { Update } from "grammy/types";
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { expect, vi } from "vitest";
@@ -27,12 +28,11 @@ export function telegramMessageUpdate(updateId: number, text: string): TestTeleg
 }
 
 export function createNearLimitTelegramPayload(): { payload: string; sizeBytes: number } {
-  const targetBytes = 1_024 * 1_024 - 4_096;
-  const shellSize = Buffer.byteLength(JSON.stringify(telegramMessageUpdate(77_777, "")), "utf-8");
-  const textLength = Math.max(1, targetBytes - shellSize);
+  const update = telegramMessageUpdate(77_777, "");
+  const textBytes = 1_024 * 1_024 - 4_096 - Buffer.byteLength(JSON.stringify(update));
   const pattern = "the quick brown fox jumps over the lazy dog ";
-  const text = pattern.repeat(Math.ceil(textLength / pattern.length)).slice(0, textLength);
-  const payload = JSON.stringify(telegramMessageUpdate(77_777, text));
+  update.message.text = pattern.repeat(Math.ceil(textBytes / pattern.length)).slice(0, textBytes);
+  const payload = JSON.stringify(update);
   return { payload, sizeBytes: Buffer.byteLength(payload, "utf-8") };
 }
 
@@ -51,9 +51,7 @@ export const requireRecord = createRequireRecord("record", "expected-label-objec
 
 export function requireMockCall(mock: unknown, index: number, label: string): unknown[] {
   const call = (mock as MockCallReader).mock.calls.at(index);
-  if (!call) {
-    throw new Error(`expected ${label} call ${index}`);
-  }
+  assert(call, `expected ${label} call ${index}`);
   return call;
 }
 
@@ -71,9 +69,7 @@ export function expectStatusCall(
   const match = (mock as MockCallReader).mock.calls
     .map((call) => requireRecord(call[0], "status call"))
     .find((status) => Object.entries(expected).every(([key, value]) => status[key] === value));
-  if (!match) {
-    throw new Error(`expected status call containing ${JSON.stringify(expected)}`);
-  }
+  assert(match, `expected status call containing ${JSON.stringify(expected)}`);
   return match;
 }
 
@@ -98,39 +94,26 @@ export function expectWebhookBotScopesAborted(createTelegramBotSpy: unknown): vo
     requireMockCall(createTelegramBotSpy, 0, "createTelegramBot")[0],
     "createTelegramBot params",
   );
-  for (const key of ["fetchAbortSignal", "accountAbortSignal"]) {
-    const signal = botParams[key];
-    expect(signal).toBeInstanceOf(AbortSignal);
-    expect((signal as AbortSignal).aborted).toBe(true);
+  for (const signal of [botParams.fetchAbortSignal, botParams.accountAbortSignal]) {
+    assert(signal instanceof AbortSignal && signal.aborted, "expected an aborted AbortSignal");
   }
 }
 
-function listenerCase(
-  name: string,
-  legacyWebhook?: false | { port: number },
-  publicUrl = "https://callback.example.test/hook",
-) {
-  return {
-    name,
-    legacyWebhook,
-    endpoint: legacyWebhook ? { ...legacyWebhook, host: "127.0.0.1" } : undefined,
-    publicUrl,
-    advertisedUrl: publicUrl || "https://gateway.example.test/hook",
-  };
-}
+export const telegramWebhookListenerCases = (
+  [
+    ["omitted", undefined, undefined],
+    ["omitted with public origin fallback", undefined, ""],
+    ["explicit", { port: 9000 }, undefined],
+    ["disabled", false, undefined],
+  ] as const
+).map(([name, legacyWebhook, publicUrl = "https://callback.example.test/hook"]) => ({
+  name,
+  legacyWebhook,
+  endpoint: legacyWebhook ? { ...legacyWebhook, host: "127.0.0.1" } : undefined,
+  publicUrl,
+  advertisedUrl: publicUrl || "https://gateway.example.test/hook",
+}));
 
-export const telegramWebhookListenerCases = [
-  listenerCase("omitted"),
-  listenerCase("omitted with public origin fallback", undefined, ""),
-  listenerCase("explicit", { port: 9000 }),
-  listenerCase("disabled", false),
-];
-
-export const telegramReservedGatewayPaths = [
-  "/health",
-  "/healthz",
-  "/ready",
-  "/readyz",
-  "/startup",
-  "/startupz",
-].flatMap((path) => [path, `${path}?token=known`]);
+export const telegramReservedGatewayPaths = ["health", "ready", "startup"]
+  .flatMap((path) => [`/${path}`, `/${path}z`])
+  .flatMap((path) => [path, `${path}?token=known`]);
