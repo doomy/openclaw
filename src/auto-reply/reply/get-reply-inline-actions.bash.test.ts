@@ -10,7 +10,7 @@ import { buildTestCtx } from "./test-ctx.js";
 
 const execute = vi.hoisted(() => vi.fn());
 
-// Keep command dispatch and parsing real; the shell is the external boundary.
+// mock-isolation: Keep command dispatch and parsing real; isolate the external shell.
 vi.mock("../../agents/bash-tools.js", () => ({
   createExecTool: () => ({ execute }),
 }));
