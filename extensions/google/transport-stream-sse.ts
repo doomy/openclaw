@@ -84,6 +84,7 @@ export async function* parseGoogleSseChunks(
           },
         );
       }
+      // SAFETY: Successful frames follow Google's GenerateContentResponse contract; error envelopes are handled above.
       yield chunk as GoogleSseChunk;
     }
     completed = true;
