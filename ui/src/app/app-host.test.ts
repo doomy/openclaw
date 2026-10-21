@@ -307,7 +307,6 @@ describe("OpenClaw shell context lifecycle", () => {
       );
       flush();
       expect(readLazyShellAction()).toEqual({ eventType: COMMAND_PALETTE_OPEN_EVENT });
-      await expect(currentShell?.updateComplete).resolves.toBe(true);
       expect(currentShell?.lazyCustomElements.visibleState?.element).toBe(COMMAND_PALETTE_ELEMENT);
       const firstShell = currentShell;
       setRuntime(second);
@@ -448,7 +447,6 @@ describe("OpenClaw shell route session commits", () => {
     const unmount = shell.mountPresentation();
     onTestFinished(unmount);
     flush();
-    await expect(shell.updateComplete).resolves.toBe(true);
 
     let disposeCaller!: () => void;
     createRoot((dispose) => {

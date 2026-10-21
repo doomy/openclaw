@@ -1,4 +1,4 @@
-import { createSignal, onSettled } from "@solidjs/signals";
+import { createSignal, onSettled, runWithOwner } from "@solidjs/signals";
 import type { GatewayStatusProps } from "../components/gateway-status.ts";
 import type { ShellRouteState } from "./app-host-route-state.ts";
 import { readNativeHistoryState } from "./native-web-chrome.ts";
@@ -154,8 +154,8 @@ export abstract class ShellPresentation {
     }
     const commit = {};
     this.pendingCommit = commit;
-    // Enter settlement outside a router caller's render memo, which can retire first.
-    queueMicrotask(() =>
+    // Router notifications can run inside a render memo that retires before this commit.
+    runWithOwner(null, () =>
       onSettled(() => {
         if (this.pendingCommit !== commit) {
           return;
