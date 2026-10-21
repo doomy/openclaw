@@ -10,7 +10,7 @@ import { mountSolid } from "../../test-helpers/mount-solid.ts";
 import { createSolidApplicationContextProvider } from "../../test-helpers/solid-application-context.tsx";
 import { createStorageMock } from "../../test-helpers/storage.ts";
 import { settleChatPage, stubMatchMedia } from "./chat-page.test-support.ts";
-import "./chat-page.ts";
+import "./chat-page.tsx";
 import { createMountedPanes } from "./chat-pane-mounted.test-support.ts";
 import { nativeHistoryMessage } from "./chat-pane.test-support.ts";
 import type { ChatPaneElement } from "./chat-pane.tsx";

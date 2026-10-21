@@ -16,7 +16,7 @@ import {
   settleChatPage,
   stubMatchMedia,
 } from "./chat-page.test-support.ts";
-import "./chat-page.ts";
+import "./chat-page.tsx";
 import { PendingSessionCreate } from "./pending-session-create-lazy.ts";
 
 const presentedSessions: string[] = [];
