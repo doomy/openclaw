@@ -11,6 +11,12 @@ const sutId = "323456789012345678";
 const driverId = "423456789012345678";
 const voiceChannelId = "523456789012345678";
 
+function expectChannelUsers(patch: OpenClawConfig | undefined, voiceUser: string) {
+  const channels = patch?.channels?.discord?.accounts?.sut?.guilds?.[guildId]?.channels;
+  expect(channels?.[textChannelId]?.users).toEqual([driverId]);
+  expect(channels?.[voiceChannelId]?.users).toEqual([voiceUser]);
+}
+
 async function prepareScenario(voiceDestination?: string) {
   const patches: OpenClawConfig[] = [];
   const call = vi.fn(async (method: string, params?: unknown) => {
@@ -33,7 +39,7 @@ async function prepareScenario(voiceDestination?: string) {
     }
     throw new Error(`unexpected gateway call: ${method}`);
   });
-  const environment = createDiscordQaScenarioEnvironment({
+  const { prepareFlow } = createDiscordQaScenarioEnvironment({
     accountId: "sut",
     driverIdentity: { id: driverId, bot: true },
     sutIdentity: { id: sutId, bot: true },
@@ -43,10 +49,10 @@ async function prepareScenario(voiceDestination?: string) {
       driverBotToken: "driver-token",
       sutBotToken: "sut-token",
       sutApplicationId: sutId,
-      ...(voiceDestination ? { voiceChannelId: voiceDestination } : {}),
+      voiceChannelId: voiceDestination,
     },
   });
-  const prepared = await environment.prepareFlow({
+  const prepared = await prepareFlow({
     config: {},
     gateway: {
       baseUrl: "http://127.0.0.1:1",
@@ -83,14 +89,7 @@ describe("Discord QA scenario environment", () => {
     expect(call).not.toHaveBeenCalled();
   });
 
-  it.each([
-    {
-      name: "transcript authorization",
-      explicit: true,
-      implementation: discordQaTranscriptsVoiceAuthorizationScenario,
-    },
-    { name: "autojoin discovery", explicit: false, implementation: discordQaVoiceAutojoinScenario },
-  ])("configures the selected voice channel for $name", async ({ explicit, implementation }) => {
+  it.each([true, false])("configures the voice channel (explicit: %s)", async (explicit) => {
     const voiceChannel = { id: voiceChannelId, guild_id: guildId, type: 2 };
     const request = vi.fn<typeof fetch>(async () =>
       Response.json(explicit ? voiceChannel : [{ id: textChannelId, type: 0 }, voiceChannel]),
@@ -99,8 +98,9 @@ describe("Discord QA scenario environment", () => {
     const { configureScenario, patches } = await prepareScenario(
       explicit ? voiceChannelId : undefined,
     );
-
-    const configured = await configureScenario(implementation);
+    const configured = await configureScenario(
+      explicit ? discordQaTranscriptsVoiceAuthorizationScenario : discordQaVoiceAutojoinScenario,
+    );
 
     expect(configured.voiceChannel).toEqual(voiceChannel);
     expect(request).toHaveBeenCalledOnce();
@@ -116,24 +116,10 @@ describe("Discord QA scenario environment", () => {
     if (explicit) {
       expect(patches[0]?.tools?.alsoAllow).toContain("transcripts");
       expect(patches[0]?.agents?.entries?.qa?.tools?.alsoAllow).toContain("transcripts");
-      expect(
-        patches[0]?.channels?.discord?.accounts?.sut?.guilds?.[guildId]?.channels?.[textChannelId]
-          ?.users,
-      ).toEqual([driverId]);
-      expect(
-        patches[0]?.channels?.discord?.accounts?.sut?.guilds?.[guildId]?.channels?.[voiceChannelId]
-          ?.users,
-      ).toEqual([sutId]);
+      expectChannelUsers(patches[0], sutId);
       await configured.configureTranscriptVoiceAccess?.(true);
       expect(patches).toHaveLength(2);
-      expect(
-        patches[1]?.channels?.discord?.accounts?.sut?.guilds?.[guildId]?.channels?.[voiceChannelId]
-          ?.users,
-      ).toEqual([driverId]);
-      expect(
-        patches[1]?.channels?.discord?.accounts?.sut?.guilds?.[guildId]?.channels?.[textChannelId]
-          ?.users,
-      ).toEqual([driverId]);
+      expectChannelUsers(patches[1], driverId);
       expect(request).toHaveBeenCalledOnce();
     }
   });

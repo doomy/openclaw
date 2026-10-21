@@ -7,8 +7,10 @@ import * as channelE2e from "./channel-e2e.js";
 import * as testing from "./discord-live.runtime.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+const driverId = "423456789012345678";
+const sutId = "323456789012345678";
 
-function mockAdapterIo() {
+function mockAdapterIo(sutUserId = sutId) {
   const release = vi.fn(async () => {});
   const heartbeatStop = vi.fn(async () => {});
   vi.spyOn(credentialLease, "acquireQaCredentialLease").mockResolvedValue({
@@ -19,7 +21,7 @@ function mockAdapterIo() {
       channelId: "223456789012345678",
       driverBotToken: "driver-token",
       sutBotToken: "sut-token",
-      sutApplicationId: "323456789012345678",
+      sutApplicationId: sutId,
     },
     assertHealthy() {},
     heartbeat: vi.fn(async () => {}),
@@ -33,13 +35,11 @@ function mockAdapterIo() {
     throwIfFailed: vi.fn(),
     whenFailed: new Promise<Error>(() => {}),
   });
-  const identity = vi
-    .spyOn(testing, "getCurrentDiscordUser")
-    .mockResolvedValueOnce({ id: "423456789012345678", bot: true })
-    .mockResolvedValueOnce({ id: "323456789012345678", bot: true });
-  const poll = vi
-    .spyOn(testing, "pollChannelMessages")
-    .mockRejectedValue(new Error("observer stopped"));
+  vi.spyOn(testing, "getCurrentDiscordUser")
+    .mockResolvedValueOnce({ id: driverId, bot: true })
+    .mockResolvedValueOnce({ id: sutUserId, bot: true });
+  const poll = vi.spyOn(testing, "pollChannelMessages");
+  poll.mockRejectedValue(new Error("observer stopped"));
   const context = {
     channelId: "discord",
     driver: "live",
@@ -54,13 +54,11 @@ function mockAdapterIo() {
       editMessage: vi.fn(),
     },
   } satisfies Parameters<typeof createDiscordQaTransportAdapter>[0];
-  return { context, heartbeatStop, identity, poll, release };
+  return { context, heartbeatStop, poll, release };
 }
 
 describe("Discord QA adapter cleanup", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+  afterEach(() => vi.restoreAllMocks());
 
   it.each([false, true])(
     "drains polling before gateway stop and releases afterward (heartbeat stop fails: %s)",
@@ -99,31 +97,20 @@ describe("Discord QA adapter cleanup", () => {
   it("defers native cleanup until Gateway stop and releases even when native cleanup fails", async () => {
     const { context, heartbeatStop, release } = mockAdapterIo();
     const outputDir = tempDirs.make("discord-adapter-cleanup-");
-    const session = channelE2e.createDiscordChannelE2eSession({
-      runtimeEnv: {
-        guildId: "123456789012345678",
-        channelId: "223456789012345678",
-        driverBotToken: "driver-token",
-        sutBotToken: "sut-token",
-        sutApplicationId: "323456789012345678",
-      },
-      driverId: "423456789012345678",
-      sutId: "323456789012345678",
-      outputDir,
-      scenarioId: "owned-cleanup",
-      assertActive() {},
-      assertLeaseActive() {},
-      async waitForSutReady() {},
+    const createSession = channelE2e.createDiscordChannelE2eSession;
+    const nativeCleanup = vi.fn(async () => {
+      throw new Error("native cleanup failed");
     });
-    vi.spyOn(session.driver, "doctor").mockResolvedValue({
-      ok: true,
-      checks: [],
-      capabilities: { automated: [], observationOnly: [], manualClient: [], unavailable: [] },
+    vi.spyOn(channelE2e, "createDiscordChannelE2eSession").mockImplementation((params) => {
+      const session = createSession(params);
+      vi.spyOn(session.driver, "doctor").mockResolvedValue({
+        ok: true,
+        checks: [],
+        capabilities: { automated: [], observationOnly: [], manualClient: [], unavailable: [] },
+      });
+      vi.spyOn(session, "cleanup").mockImplementation(nativeCleanup);
+      return session;
     });
-    vi.spyOn(channelE2e, "createDiscordChannelE2eSession").mockReturnValue(session);
-    const nativeCleanup = vi
-      .spyOn(session, "cleanup")
-      .mockRejectedValue(new Error("native cleanup failed"));
     const adapter = await createDiscordQaTransportAdapter({
       ...context,
       adapterOptions: { agentE2e: true },
@@ -152,22 +139,10 @@ describe("Discord QA adapter cleanup", () => {
   });
 
   it.each([
-    {
-      name: "bots are identical",
-      sutId: "423456789012345678",
-      error: "requires two distinct bots",
-    },
-    {
-      name: "SUT application ID mismatches",
-      sutId: "523456789012345678",
-      error: "application id must match",
-    },
-  ])("immediately releases when $name", async ({ sutId, error }) => {
-    const { context, heartbeatStop, identity, poll, release } = mockAdapterIo();
-    identity
-      .mockReset()
-      .mockResolvedValueOnce({ id: "423456789012345678", bot: true })
-      .mockResolvedValueOnce({ id: sutId, bot: true });
+    [driverId, "requires two distinct bots"],
+    ["523456789012345678", "application id must match"],
+  ])("immediately releases for invalid SUT %s (%s)", async (invalidSutId, error) => {
+    const { context, heartbeatStop, poll, release } = mockAdapterIo(invalidSutId);
 
     await expect(createDiscordQaTransportAdapter(context)).rejects.toThrow(error);
 
