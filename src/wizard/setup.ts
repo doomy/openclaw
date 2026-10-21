@@ -9,6 +9,7 @@ import { hasResolvedRosterBeforeMigrations } from "../config/agent-roster-proven
 import { ConfigMutationConflictError } from "../config/config.js";
 import { resolveAgentModelPrimaryValue } from "../config/model-input.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { preserveGatewaySshRemotePort } from "../gateway/connection-details.js";
 import { resolveGatewayProbeAuthSafeWithSecretInputs } from "../gateway/probe-auth.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import {
@@ -374,6 +375,9 @@ async function runSetupWizardOnce(
             ...baseConfig.gateway,
             remote: {
               ...baseConfig.gateway?.remote,
+              ...(!remoteUrlChanged && opts.remoteUrl !== undefined
+                ? preserveGatewaySshRemotePort(baseConfig, optionRemoteUrl, storedRemoteUrl)
+                : {}),
               ...(opts.remoteUrl !== undefined ? { url: optionRemoteUrl } : {}),
               ...(opts.remoteToken !== undefined
                 ? { token: optionRemoteToken }

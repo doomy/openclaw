@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWizardPrompter } from "../../test/helpers/auth-wizard.js";
 import type { OpenClawConfig } from "../config/config.js";
+import { resolveGatewaySshRemotePort } from "../gateway/connection-details.js";
 import type { GatewayBonjourBeacon } from "../infra/bonjour-discovery.js";
 import { captureEnv } from "../test-utils/env.js";
 import type { WizardPrompter } from "../wizard/prompts.js";
@@ -104,6 +105,36 @@ describe("promptRemoteGatewayConfig", () => {
   afterEach(() => {
     envSnapshot.restore();
   });
+
+  it.each([
+    ["ws://127.0.0.1:80", "ws://127.0.0.1", 80],
+    ["ws://127.0.0.1", "ws://127.0.0.1:80", 18789],
+  ] as const)(
+    "preserves the SSH destination when editing %s to %s",
+    async (originalUrl, url, port) => {
+      const { next } = await runRemotePrompt({
+        cfg: {
+          gateway: {
+            port: 18789,
+            remote: {
+              url: originalUrl,
+              transport: "ssh",
+              sshTarget: "operator@gateway.example",
+              token: "existing-token",
+            },
+          },
+        },
+        text: urlText(url),
+      });
+
+      expect(next.gateway?.remote).toMatchObject({
+        url,
+        sshTarget: "operator@gateway.example",
+        token: "existing-token",
+      });
+      expect(resolveGatewaySshRemotePort(next)).toBe(port);
+    },
+  );
 
   it.each([
     {

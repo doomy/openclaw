@@ -3,6 +3,7 @@
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { resolveGatewaySshRemotePort } from "../gateway/connection-details.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import { withMockedPlatform } from "../test-utils/vitest-spies.js";
@@ -584,6 +585,35 @@ describe("onboard (non-interactive): gateway and remote auth", () => {
       expect(
         await setupRemoteCredentials({ secretInputMode: "ref" }, remoteCredentialConfig(remote)),
       ).toEqual({ ...remote, url: remoteCredentialUrl });
+    },
+  );
+
+  it.each([
+    ["ws://127.0.0.1:80", "ws://127.0.0.1", 80],
+    ["ws://127.0.0.1", "ws://127.0.0.1:80", 18789],
+  ] as const)(
+    "preserves the SSH destination when editing %s to %s",
+    async (originalUrl, url, port) => {
+      const remote = await setupRemoteCredentials(
+        { remoteUrl: url },
+        {
+          gateway: {
+            port: 18789,
+            remote: {
+              url: originalUrl,
+              transport: "ssh",
+              sshTarget: "operator@gateway.example.test",
+              token: "existing-token",
+            },
+          },
+        },
+      );
+      expect(remote).toMatchObject({
+        url,
+        sshTarget: "operator@gateway.example.test",
+        token: "existing-token",
+      });
+      expect(resolveGatewaySshRemotePort({ gateway: { port: 18789, remote } })).toBe(port);
     },
   );
 

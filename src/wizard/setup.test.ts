@@ -15,6 +15,7 @@ import { createConfigIO as createRealConfigIO } from "../config/io.factory.js";
 import { createConfigFileSnapshot } from "../config/io.snapshot-shared.js";
 import { materializeRuntimeConfig } from "../config/materialize.js";
 import type { ConfigFileSnapshot, OpenClawConfig } from "../config/types.openclaw.js";
+import { resolveGatewaySshRemotePort } from "../gateway/connection-details.js";
 import type { PluginCompatibilityNotice } from "../plugins/status.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { createCanonicalAgentConfigFixture } from "../test-utils/config-roster.js";
@@ -554,55 +555,54 @@ describe("runSetupWizard", () => {
   });
 
   it.each([
-    { name: "a different host", url: "wss://flag.example.com:18789", preserve: false },
-    {
-      name: "a different query",
-      url: "wss://stored.example.com:18789?account=work",
-      preserve: false,
-    },
-    { name: "an equivalent URL", url: "wss://stored.example.com:18789/", preserve: true },
-    { name: "an equivalent SSH URL", url: "ws://127.0.0.1:18789/", preserve: true },
-  ])("scopes interactive remote credentials for $name", async ({ url, preserve }) => {
-    const remote = storedRemote({
-      ...(url.startsWith("ws:")
-        ? { url: url.slice(0, -1), transport: "ssh", sshTarget: "operator@gateway.example" }
-        : {}),
-      token: "stored-token",
-      password: undefined,
-      edgeAuth: { "X-Edge-Auth": "test-secret" },
-      tlsFingerprint: "ab".repeat(32),
-    });
-    readConfigFileSnapshot.mockResolvedValueOnce(configSnapshot({ gateway: { remote } }));
-    vi.stubEnv("OPENCLAW_GATEWAY_PASSWORD", "ambient-password"); // pragma: allowlist secret
+    ["wss://stored.example:18789", "wss://other.example:18789", false, undefined],
+    ["wss://stored.example:18789", "wss://stored.example:18789?account=work", false, undefined],
+    ["wss://stored.example:18789", "wss://stored.example:18789/", true, undefined],
+    ["ws://127.0.0.1:18789", "ws://127.0.0.1:18789/", true, undefined],
+    ["ws://127.0.0.1:80", "ws://127.0.0.1", true, 80],
+    ["ws://127.0.0.1", "ws://127.0.0.1:80", true, 18789],
+  ] as const)(
+    "scopes saved remote settings from %s to %s",
+    async (originalUrl, url, preserve, port) => {
+      const remote = storedRemote({
+        url: originalUrl,
+        ...(originalUrl.startsWith("ws:")
+          ? { transport: "ssh", sshTarget: "operator@gateway.example" }
+          : {}),
+        token: "stored-token",
+        password: undefined,
+        edgeAuth: { "X-Edge-Auth": "test-secret" },
+        tlsFingerprint: "ab".repeat(32),
+      });
+      readConfigFileSnapshot.mockResolvedValue(
+        configSnapshot({ gateway: { port: 18789, remote } }),
+      );
+      vi.stubEnv("OPENCLAW_GATEWAY_PASSWORD", "ambient-password"); // pragma: allowlist secret
 
-    await runWizard({ flow: "advanced", mode: "remote", remoteUrl: url });
+      await runWizard({ flow: "advanced", mode: "remote", remoteUrl: url });
 
-    expect(probeGatewayReachable).toHaveBeenCalledWith({
-      ...configuredRemoteProbeArgs,
-      configuredRemote: preserve,
-      url: preserve ? remote.url : url,
-      token: preserve ? remote.token : undefined,
-      config: expect.objectContaining({
-        gateway: expect.objectContaining({
-          remote: expect.objectContaining({
-            url: remote.url,
-            edgeAuth: { "X-Edge-Auth": "test-secret" },
-            tlsFingerprint: "ab".repeat(32),
-          }),
+      expect(probeGatewayReachable).toHaveBeenCalledWith({
+        ...configuredRemoteProbeArgs,
+        configuredRemote: preserve,
+        url: preserve ? remote.url : url,
+        token: preserve ? remote.token : undefined,
+        config: expect.objectContaining({
+          gateway: expect.objectContaining({ remote: expect.objectContaining(remote) }),
         }),
-      }),
-    });
-    expect(remotePromptCalls()).toContainEqual({
-      remote: {
+      });
+      const saved = expectDefined(persistedWizardConfigs().at(-1), "saved remote config");
+      expect(saved.gateway?.remote).toEqual({
         ...remote,
         url,
         token: preserve ? remote.token : undefined,
         password: undefined,
-      },
-      prompter: expect.any(Object),
-      options: { secretInputMode: undefined, remoteOriginUrl: remote.url },
-    });
-  });
+        ...(port ? { remotePort: port } : {}),
+      });
+      if (port) {
+        expect(resolveGatewaySshRemotePort(saved)).toBe(port);
+      }
+    },
+  );
 
   it("does not probe an invalid CLI remote URL with its token", async () => {
     const remoteToken = "REDACTED";

@@ -5,6 +5,7 @@ import {
 } from "../../packages/gateway-client/src/gateway-origin-scope.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { SecretInput } from "../config/types.secrets.js";
+import { preserveGatewaySshRemotePort } from "../gateway/connection-details.js";
 import { isSecureWebSocketUrl } from "../gateway/net.js";
 import { discoverGatewayBeacons, type GatewayBonjourBeacon } from "../infra/bonjour-discovery.js";
 import {
@@ -242,6 +243,12 @@ export async function promptRemoteGatewayConfig(
     remoteOriginUrl && gatewayOriginScope(url) === gatewayOriginScope(remoteOriginUrl)
       ? cfg.gateway?.remote?.edgeAuth
       : undefined;
+  // A newly suggested manual tunnel can reach another host behind the same loopback URL.
+  const preservedRemote =
+    gatewayCredentialScope(url) === gatewayCredentialScope(remoteOriginUrl ?? "") &&
+    selectedDiscovery?.transport !== "ssh"
+      ? cfg.gateway?.remote
+      : undefined;
 
   return {
     ...cfg,
@@ -249,10 +256,9 @@ export async function promptRemoteGatewayConfig(
       ...cfg.gateway,
       mode: "remote",
       remote: {
-        // A newly suggested manual tunnel can reach another host behind the same loopback URL.
-        ...(gatewayCredentialScope(url) === gatewayCredentialScope(remoteOriginUrl ?? "") &&
-        selectedDiscovery?.transport !== "ssh"
-          ? cfg.gateway?.remote
+        ...preservedRemote,
+        ...(preservedRemote && selectedDiscovery?.transport !== "direct"
+          ? preserveGatewaySshRemotePort(cfg, url, remoteOriginUrl)
           : {}),
         url,
         edgeAuth,
