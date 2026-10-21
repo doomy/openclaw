@@ -6,10 +6,59 @@ import {
   selectDatabaseEngine,
   type DatabaseEngineId,
 } from "../infra/database-engine/registry.js";
+import { admitSqliteSchema } from "../infra/sqlite-schema-facts.js";
+import { openSqliteReadOnlyDatabase } from "../infra/sqlite-snapshot-source.js";
 import { createPluginDoctorStateMigrationInput } from "../infra/state-migrations.plugin-doctor.js";
 import { listPluginDoctorStateMigrationEntries } from "../plugins/doctor-contract-registry.js";
+import { readBackupEngine } from "../snapshot/database-backup.js";
 import { withArtifactPreservingStateReads } from "../state/artifact-preserving-state-reads.js";
 import type { DatabasePortFamily } from "./doctor-database-port-context.js";
+import { readReservedIncognitoKeyRepairState } from "./doctor-session-incognito-key-repair-state.js";
+import { listReservedIncognitoKeys } from "./doctor-session-incognito-key-repair.js";
+
+class DatabasePortReservedIncognitoKeysError extends DatabasePortError {
+  readonly code = "RESERVED_INCOGNITO_SESSION_KEYS";
+
+  constructor() {
+    super(
+      "Database port found unrepaired reserved-incognito session keys. Run openclaw doctor --fix on the SQLite installation, then retry adoption.",
+    );
+  }
+}
+
+/** The global rename must finish on SQLite before any selected agent leaves that repair owner. */
+export function assertDatabasePortReservedIncognitoKeysRepaired(params: {
+  sharedPaths: readonly string[];
+  agentPaths: readonly string[];
+}): void {
+  withArtifactPreservingStateReads(
+    () => {
+      for (const [paths, shared] of [
+        [params.sharedPaths, true],
+        [params.agentPaths, false],
+      ] as const) {
+        for (const pathname of paths) {
+          if (readBackupEngine(pathname).engine !== "sqlite") {
+            continue;
+          }
+          using db = openSqliteReadOnlyDatabase(pathname);
+          admitSqliteSchema(db);
+          let pending: boolean;
+          if (shared) {
+            const state = readReservedIncognitoKeyRepairState(db);
+            pending = state.reservedKeys.length > 0 || state.renames.length > 0;
+          } else {
+            pending = listReservedIncognitoKeys(db).length > 0;
+          }
+          if (pending) {
+            throw new DatabasePortReservedIncognitoKeysError();
+          }
+        }
+      }
+    },
+    { agentDatabases: true },
+  );
+}
 
 /** Legacy imports must finish while their destination family still accepts SQLite writes. */
 export async function assertDatabasePortPluginMigrationsComplete(params: {

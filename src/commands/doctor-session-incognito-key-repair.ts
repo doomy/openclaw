@@ -16,6 +16,11 @@ import {
   type ExistingAgentDatabaseTarget,
 } from "../infra/session-sqlite-migration-readers.js";
 import type { EngineConnection } from "../infra/sql-connection.js";
+import { isPostgresSqlConnection } from "../infra/sql-connection.js";
+import {
+  createLegacyStateMigrationStepReceipt,
+  DoctorStateMigrationRefusalError,
+} from "../infra/state-migrations.messages.js";
 import { isIncognitoSessionKey, parseAgentSessionKey } from "../routing/session-key.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../state/openclaw-agent-db-readonly.js";
 import type { DB as OpenClawAgentKyselyDatabase } from "../state/openclaw-agent-db.generated.js";
@@ -25,16 +30,12 @@ import {
   type OpenClawAgentDatabase,
   runOpenClawAgentWriteTransaction,
 } from "../state/openclaw-agent-db.js";
-import {
-  openOpenClawStateDatabase,
-  runOpenClawStateWriteTransaction,
-} from "../state/openclaw-state-db.js";
+import { withExistingOpenClawStateDatabaseReadOnly } from "../state/openclaw-state-db-readonly.js";
+import { runOpenClawStateWriteTransaction } from "../state/openclaw-state-db.js";
 import { runDoctorAgentDatabaseOperation } from "./doctor-agent-database-operation.js";
 import {
-  collectSharedStateSessionKeys,
   deleteRepairJournal,
-  readRepairJournal,
-  readRepairJournalReadOnly,
+  readReservedIncognitoKeyRepairState,
   rewriteSharedStateSessionKeys,
   type ReservedKeyRename,
   writeRepairJournal,
@@ -45,6 +46,30 @@ export type ReservedIncognitoKeyRepairReport = {
   found: number;
   repaired: number;
 };
+
+class ReservedIncognitoSessionKeyRepairError extends DoctorStateMigrationRefusalError {
+  readonly code = "RESERVED_INCOGNITO_SESSION_KEYS";
+
+  constructor() {
+    const message =
+      "Reserved-incognito session keys cannot be repaired in PostgreSQL. Re-adopt from a repaired SQLite source: run openclaw doctor --fix on the SQLite installation, then retry adoption.";
+    const endpoints = [{ kind: "owner" as const, id: "reserved-incognito-session-keys" }];
+    super([
+      createLegacyStateMigrationStepReceipt(
+        {
+          id: "reserved-incognito-session-keys",
+          phase: "final",
+          source: endpoints,
+          target: endpoints,
+          requiredness: "required",
+          reversibility: "not-applicable",
+          refusal: { code: "RESERVED_INCOGNITO_SESSION_KEYS", message },
+        },
+        { changes: [], warnings: [message], notices: [message] },
+      ),
+    ]);
+  }
+}
 
 export async function repairReservedIncognitoSessionKeys(params: {
   apply: boolean;
@@ -59,11 +84,13 @@ export async function repairReservedIncognitoSessionKeys(params: {
       databaseOptions: resolveTargetSqliteOptions(target, params.env),
     }),
   );
-  const reservedKeys = new Set<string>();
-  const sharedDatabase = params.apply ? openOpenClawStateDatabase({ env: params.env }) : undefined;
-  const journalRenames = sharedDatabase
-    ? readRepairJournal(sharedDatabase.db)
-    : readRepairJournalReadOnly(params.env);
+  const sharedState = withExistingOpenClawStateDatabaseReadOnly(
+    (database) => readReservedIncognitoKeyRepairState(database.db),
+    { env: params.env },
+  );
+  const reservedKeys = new Set(sharedState?.reservedKeys);
+  const journalRenames = sharedState?.renames ?? [];
+  let hasPostgresAgent = false;
   const collectAgentKeys = (
     keys: Set<string>,
     read: (database: EngineConnection) => Iterable<string>,
@@ -73,7 +100,10 @@ export async function repairReservedIncognitoSessionKeys(params: {
         agentId: target.agentId,
         path: target.sqlitePath,
         run: () =>
-          withOpenClawAgentDatabaseReadOnly((database) => read(database.db), databaseOptions),
+          withOpenClawAgentDatabaseReadOnly((database) => {
+            hasPostgresAgent ||= isPostgresSqlConnection(database.db);
+            return read(database.db);
+          }, databaseOptions),
       });
       if (operation.ok && operation.value.found) {
         for (const key of operation.value.value) {
@@ -87,6 +117,10 @@ export async function repairReservedIncognitoSessionKeys(params: {
   for (const rename of journalRenames) {
     pendingKeys.add(rename.from);
   }
+  // Refuse before opening a writer: a partial shared rename or journal is not a PG repair.
+  if (pendingKeys.size > 0 && hasPostgresAgent) {
+    throw new ReservedIncognitoSessionKeyRepairError();
+  }
   if (!params.apply) {
     return { found: pendingKeys.size, repaired: 0 };
   }
@@ -94,9 +128,7 @@ export async function repairReservedIncognitoSessionKeys(params: {
     return { found: 0, repaired: 0 };
   }
 
-  const occupiedKeys = sharedDatabase
-    ? collectSharedStateSessionKeys(sharedDatabase.db)
-    : new Set<string>();
+  const occupiedKeys = sharedState?.occupiedKeys ?? new Set<string>();
   collectAgentKeys(occupiedKeys, collectOccupiedSessionKeys);
   for (const rename of journalRenames) {
     occupiedKeys.add(rename.to);
@@ -227,7 +259,7 @@ function legacyIncognitoSessionKey(sessionKey: string): string {
   return `agent:${parsed.agentId}:${parsed.rest.replace(":incognito-", ":legacy-incognito-")}`;
 }
 
-function listReservedIncognitoKeys(database: EngineConnection): string[] {
+export function listReservedIncognitoKeys(database: EngineConnection): string[] {
   const db = getNodeSqliteKysely<OpenClawAgentKyselyDatabase>(database);
   const keys = new Set<string>();
   for (const table of ["session_nodes", "session_windows"] as const) {

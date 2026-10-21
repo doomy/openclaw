@@ -20,9 +20,10 @@ import {
 } from "../../state/openclaw-state-db.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { cleanupSessionStateForTest } from "../../test-utils/session-state-cleanup.js";
-import { databasePortManifestPath } from "../database-port-recovery.js";
+import { databasePortManifestPath, type DatabasePortManifest } from "../database-port-recovery.js";
 import { openNodeSqliteDatabase } from "../node-sqlite.js";
 import type { EngineConnection } from "../sql-connection.js";
+import { DoctorStateMigrationRefusalError } from "../state-migrations.messages.js";
 import { installDatabaseProcessRole, withEngineStoreAdmission } from "./admission-scope.js";
 import { agentPortProvider } from "./agent-port.js";
 import { mixedAgentConnection, useMixedAgentPair } from "./mixed-agent.conformance.test-support.js";
@@ -111,6 +112,10 @@ describe.skipIf(!mixedAgentConnection)("reserved-incognito adoption preflight", 
           const sharedPath = state.statePath("state", "openclaw.sqlite");
           const sourceAgentKey = scope === "shared only" ? "agent:main:main" : oldKey;
           const expectedAgentKey = scope === "shared only" ? sourceAgentKey : newKey;
+          const portOptions =
+            scope === "agent without shared"
+              ? { to: "postgres" as const }
+              : { family: "agent" as const, to: "postgres" as const };
           if (scope === "agent without shared") {
             const descriptor = await agentPortProvider.loadDescriptor();
             fs.mkdirSync(path.dirname(agentPath), { recursive: true });
@@ -135,10 +140,9 @@ describe.skipIf(!mixedAgentConnection)("reserved-incognito adoption preflight", 
           const client = new Client({ connectionString: mixedAgentConnection });
           await client.connect();
           try {
-            const error: unknown = await doctorDatabasePort({
-              family: "agent",
-              to: "postgres",
-            }).catch((caught: unknown) => caught);
+            const error: unknown = await doctorDatabasePort(portOptions).catch(
+              (caught: unknown) => caught,
+            );
             expect(error).toBeInstanceOf(DatabasePortError);
             expect(error).toMatchObject({ code: "RESERVED_INCOGNITO_SESSION_KEYS" });
             expect(String(error)).toContain("openclaw doctor --fix");
@@ -185,17 +189,22 @@ describe.skipIf(!mixedAgentConnection)("reserved-incognito adoption preflight", 
               });
             });
             await cleanupSessionStateForTest({ stateDir: state.stateDir });
-            const result = await doctorDatabasePort({ family: "agent", to: "postgres" });
+            const result = await doctorDatabasePort(portOptions);
             expect(result).toMatchObject({
               phase: "complete",
               engine: "postgres",
-              stores: [agentPath],
+              stores:
+                scope === "agent without shared"
+                  ? expect.arrayContaining([agentPath, sharedPath])
+                  : [agentPath],
             });
             assert("manifest" in result);
-            const manifest = JSON.parse(fs.readFileSync(result.manifest, "utf8")) as {
-              targets: Array<{ intended: { engine: string; namespace: string } }>;
-            };
-            const target = manifest.targets[0]?.intended;
+            const manifest = JSON.parse(
+              fs.readFileSync(result.manifest, "utf8"),
+            ) as DatabasePortManifest;
+            const target = manifest.targets.find(
+              ({ original }) => original.engine === "sqlite" && original.path === agentPath,
+            )?.intended;
             assert(target?.engine === "postgres");
             for (const table of [
               "session_nodes",
@@ -253,7 +262,7 @@ describe.each(["sqlite", "postgres"] as const)("%s reserved-incognito Doctor", (
       if (engine === "postgres") {
         for (const apply of [true, false]) {
           const error: unknown = await repair(apply).catch((caught: unknown) => caught);
-          expect(error).toBeInstanceOf(Error);
+          expect(error).toBeInstanceOf(DoctorStateMigrationRefusalError);
           expect(error).toMatchObject({ code: "RESERVED_INCOGNITO_SESSION_KEYS" });
           expect(String(error)).toMatch(/re-adopt.*repaired SQLite/i);
           expect(

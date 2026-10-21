@@ -69,7 +69,10 @@ import {
   storeAt,
   storeDirectory,
 } from "./doctor-database-port-context.js";
-import { assertDatabasePortPluginMigrationsComplete } from "./doctor-database-port-migrations.js";
+import {
+  assertDatabasePortPluginMigrationsComplete,
+  assertDatabasePortReservedIncognitoKeysRepaired,
+} from "./doctor-database-port-migrations.js";
 import {
   assertOriginal,
   loadDatabasePortStateReceipt,
@@ -120,9 +123,6 @@ async function preflight(ctx: Context, options: DatabasePortOptions) {
     to,
     family: ctx.family,
   });
-  if (!ctx.family || ctx.family === "state") {
-    await prepareSharedStatePortSource(ctx, from, to, options.dryRun);
-  }
   const context = { stateDir: ctx.stateDir, config, env: ctx.env };
   const plugins = resolvePluginMetadataSnapshot(context);
   const families = await Promise.all(
@@ -131,15 +131,27 @@ async function preflight(ctx: Context, options: DatabasePortOptions) {
       roots: await provider.resolveRoots({ ...context, plugins }),
     })),
   );
-  privatePaths(
-    ctx,
-    families.flatMap((family) => family.roots),
-  );
-  const all = await discoverBackupDatabasePaths({ stateDir: ctx.stateDir, config, env: ctx.env });
+  const roots = families.flatMap((family) => family.roots);
+  privatePaths(ctx, roots);
+  let all = await discoverBackupDatabasePaths({ stateDir: ctx.stateDir, config, env: ctx.env });
   const owner = (file: string) =>
     families.find((family) =>
       family.roots.some((root) => file === root || file.startsWith(`${root}${path.sep}`)),
     )?.id;
+  if (from === "sqlite" && to === "postgres") {
+    assertDatabasePortReservedIncognitoKeysRepaired({
+      sharedPaths: all.filter((file) => owner(file) === "state"),
+      agentPaths: all.filter(
+        (file) => owner(file) === "agent" && (!ctx.family || ctx.family === "agent"),
+      ),
+    });
+  }
+  if (
+    (!ctx.family || ctx.family === "state") &&
+    (await prepareSharedStatePortSource(ctx, from, to, options.dryRun))
+  ) {
+    all = await discoverBackupDatabasePaths({ stateDir: ctx.stateDir, config, env: ctx.env });
+  }
   const selected = all.filter((file) => owner(file) && (!ctx.family || owner(file) === ctx.family));
   const localCompanions = new Map<string, string>();
   for (const file of selected) {
