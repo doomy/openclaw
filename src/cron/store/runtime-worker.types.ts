@@ -4,7 +4,7 @@ import type {
   OperatorApprovalConsumptionInput,
   OperatorApprovalRecord,
 } from "../../gateway/operator-approval-store.types.js";
-import type { ExecApprovalsFile } from "../../infra/exec-approvals-core.js";
+import type { ReadonlyExecApprovalsFile } from "../../infra/exec-approvals-core.js";
 import type { CronJobScratchWriteInput, CronJobScratchWriteOutcome } from "../scratch-contract.js";
 import type {
   CronNotificationIntent,
@@ -53,7 +53,7 @@ type CronSkippedRunChange =
 export type CronStreamMutationAdmissionFacts = {
   mutation: CronStreamExecMutation;
   unchangedDeclaration: boolean;
-  execApprovals?: ExecApprovalsFile;
+  execApprovals?: ReadonlyExecApprovalsFile;
 };
 
 export type CronJobMutationRefusal = { kind: "store-changed" };
