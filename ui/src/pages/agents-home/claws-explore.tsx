@@ -231,7 +231,8 @@ export function ClawsExplore(props: { onSelect?: (entry: ClawCatalogEntry) => vo
                       await current.ready;
                     }
                     if (!current.isCurrent()) {
-                      return { entries: [], featured: [], sections: [] as ClawSection[] };
+                      const sections: ClawSection[] = [];
+                      return { entries: [], featured: [], sections };
                     }
                     const [entries, featured, sections] = await Promise.all([
                       overview
