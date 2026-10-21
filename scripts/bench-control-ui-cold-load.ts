@@ -334,7 +334,11 @@ if (bootRoute !== "chat" && bootRoute !== "new") {
 }
 if (
   bootRoute === "new" &&
-  (!firstLoad || values["live-events"] || values["session-switch"] || values["streaming-reply"])
+  (!firstLoad ||
+    values["live-events"] ||
+    values["session-switch"] ||
+    values["streaming-reply"] ||
+    values["overlay-probe"])
 ) {
   throw new Error("boot-route new requires first-load without chat interaction phases");
 }
