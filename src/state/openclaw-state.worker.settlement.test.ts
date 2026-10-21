@@ -1,4 +1,5 @@
 import { copyFileSync, existsSync, linkSync, readFileSync, unlinkSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { getNodeSqliteKysely, iterateSqliteQuerySync } from "../infra/kysely-sync.js";
 import { SQLITE_WORKER_PREPARE_COMMAND } from "../infra/sqlite-worker-contract.js";
@@ -6,6 +7,8 @@ import * as operationAdmission from "../infra/sqlite-worker-operation-admission.
 import { runWithSqliteWorkerStateContext } from "../infra/sqlite-worker-state-context.js";
 import { createUpdateRun } from "../infra/update-run-ledger.js";
 import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
+import { readConfigMachineStateRowInDatabase } from "./config-machine-state-row.js";
+import { writeConfigMachineState } from "./config-machine-state-write.js";
 import { closeOpenClawStateDatabaseAsync } from "./openclaw-state-db-cache.js";
 import { openOpenClawStateDatabase } from "./openclaw-state-db.js";
 import { captureOpenClawStateWorkerContext } from "./openclaw-state-worker-context.js";
@@ -37,6 +40,38 @@ afterEach(async () => {
   activeBackend = undefined;
   await closeOpenClawStateDatabaseAsync();
   await state.cleanup();
+});
+
+it("publishes a single machine-state write without a transaction envelope", async () => {
+  const key = "tts.prefsPath";
+  writeConfigMachineState(key, "original");
+  const { run, backend, databasePath } = await openBackend("native");
+  const { db } = openOpenClawStateDatabase();
+  using reader = new DatabaseSync(databasePath, { readOnly: true });
+  expect(readConfigMachineStateRowInDatabase(db, key)?.value_json).toBe('"original"');
+  await backend[SQLITE_WORKER_PREPARE_COMMAND]?.("machineState.write");
+  const execute = vi.spyOn(db, "exec");
+  vi.spyOn(Date, "now").mockReturnValue(12_345);
+  const writtenAt = run(() =>
+    backend.execute({
+      type: "machineState.write",
+      input: { key: ` ${key} `, value: "updated" },
+    }),
+  );
+  const expected = { value_json: '"updated"', updated_at_ms: 12_345 };
+  expect(writtenAt).toBe(expected.updated_at_ms);
+  expect(readConfigMachineStateRowInDatabase(db, key)).toEqual(expected);
+  expect(
+    reader
+      .prepare("SELECT value_json, updated_at_ms FROM config_machine_state WHERE state_key = ?")
+      .get(key),
+  ).toEqual(expected);
+  expect(() => backend.assertSettled!()).not.toThrow();
+  expect(
+    execute.mock.calls.filter(([sql]) =>
+      /\b(?:BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)\b/i.test(sql),
+    ),
+  ).toEqual([]);
 });
 
 it("closes an existing-only actor without recreating its missing database", async () => {
