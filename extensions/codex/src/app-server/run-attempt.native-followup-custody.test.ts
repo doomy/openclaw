@@ -10,6 +10,7 @@ import { loadNodeExecAvailability } from "openclaw/plugin-sdk/node-selection-run
 import {
   createAdmittedHostCapabilityTestFixture,
   createMockPluginRegistry,
+  setActivePluginRegistry,
 } from "openclaw/plugin-sdk/plugin-test-runtime";
 import { beforeEach, expect, it, vi } from "vitest";
 import { readAttemptTerminal } from "./attempt-terminal.test-helper.js";
@@ -140,6 +141,24 @@ it.each([
   "code-mode-hook",
 ] as const)("preserves accepted follow-up through sessions_yield (%s)", async (scenario) => {
   vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const middleware = vi.fn(async () => undefined);
+  const afterToolCall = vi.fn();
+  if (scenario === "code-mode-hook") {
+    const registry = createMockPluginRegistry([
+      { hookName: "before_tool_call", handler: async () => undefined },
+      { hookName: "after_tool_call", handler: afterToolCall },
+    ]);
+    registry.agentToolResultMiddlewares.push({
+      pluginId: "receipt-observer",
+      pluginName: "Receipt observer",
+      rawHandler: middleware,
+      handler: middleware,
+      runtimes: ["codex"],
+      source: "test",
+    });
+    setActivePluginRegistry(registry);
+    initializeGlobalHookRunner(registry);
+  }
   const childThreadId =
     scenario === "code-mode-hook" ? "cc88492c-48b5-4d17-b66f-84c92c95dca4" : `custody-${scenario}`;
   const waiterThreadId = `${childThreadId}-waiter`;
@@ -225,22 +244,48 @@ it.each([
     );
     if (scenario === "code-mode-hook") {
       expect(delivery.mock.calls.filter(([call]) => call.childSessionKey === runB)).toEqual([]);
-      await invokeNativeHookRelay({
-        provider: "codex",
-        relayId,
-        generation: extractGenerationFromThreadRequest(threadRequest),
-        requireGeneration: true,
-        event: "post_tool_use",
-        rawPayload: {
-          hook_event_name: "PostToolUse",
-          session_id: "thread-1",
-          turn_id: "turn-1",
-          tool_name: "multi_agent_v1send_input",
-          tool_use_id: "submit-b",
-          tool_input: { target: childThreadId.replaceAll("-", "").toUpperCase() },
-          tool_response: JSON.stringify({ submission_id: turnB }),
-        },
-      });
+      const receipt = {
+        hook_event_name: "PostToolUse",
+        session_id: "thread-1",
+        turn_id: "turn-1",
+        tool_name: "multi_agent_v1send_input",
+        tool_use_id: "submit-b",
+        tool_input: { target: childThreadId.replaceAll("-", "").toUpperCase() },
+        tool_response: JSON.stringify({ submission_id: turnB }),
+      };
+      const invokeReceipt = (rawPayload: JsonObject) =>
+        invokeNativeHookRelay({
+          provider: "codex",
+          relayId,
+          generation: extractGenerationFromThreadRequest(threadRequest),
+          requireGeneration: true,
+          event: "post_tool_use",
+          rawPayload,
+        });
+      await expect(invokeReceipt({ ...receipt, turn_id: "retired-root-turn" })).rejects.toThrow(
+        "Codex native submission parent registration is no longer current",
+      );
+      expect(middleware).not.toHaveBeenCalled();
+      expect(afterToolCall).not.toHaveBeenCalled();
+      await expect(
+        invokeReceipt({
+          ...receipt,
+          agent_id: waiterThreadId,
+          turn_id: "waiter-turn",
+          tool_use_id: "child-submit",
+          tool_response: JSON.stringify({ submission_id: "child-submission" }),
+        }),
+      ).resolves.toEqual({ stdout: "", stderr: "", exitCode: 0 });
+      expect(middleware).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ toolCallId: "child-submit", turnId: "waiter-turn" }),
+        expect.any(Object),
+      );
+      expect(afterToolCall).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ toolCallId: "child-submit" }),
+        expect.any(Object),
+      );
+      expect(delivery.mock.calls.filter(([call]) => call.childSessionKey === runB)).toEqual([]);
+      await invokeReceipt(receipt);
       // The native item can arrive after its receipt; it must not create another assignment.
       await collab("submit-b", "sendInput", childThreadId);
     }

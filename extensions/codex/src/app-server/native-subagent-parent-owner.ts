@@ -274,13 +274,14 @@ export async function registerNativeSubagentParent(
     ready,
     observeSubmissionAcknowledgement: async (receipt, assertCurrent) => {
       assertCurrent();
-      if (
-        !registered ||
-        !isCurrent() ||
-        registeredState.owners.get(ownerKey) !== owner ||
-        (owner.turnId && owner.turnId !== receipt.parentTurnId) ||
-        (receipt.senderThreadId && receipt.senderThreadId !== parentThreadId)
-      ) {
+      if (!registered || !isCurrent() || registeredState.owners.get(ownerKey) !== owner) {
+        throw new Error("Codex native submission parent registration is no longer current");
+      }
+      // Native children inherit this hook command, but their receipts belong to their own sender.
+      if (receipt.senderThreadId && receipt.senderThreadId !== parentThreadId) {
+        return;
+      }
+      if (owner.turnId && owner.turnId !== receipt.parentTurnId) {
         throw new Error("Codex native submission parent registration is no longer current");
       }
       dependencies.submissions.observeHookAcknowledgement(registeredState, receipt, owner);
