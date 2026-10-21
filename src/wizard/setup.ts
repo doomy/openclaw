@@ -415,7 +415,8 @@ async function runSetupWizardOnce(
   }
   const remoteProbe = remoteUrl
     ? await onboardHelpers.probeGatewayReachable({
-        url: remoteUrl,
+        // Keep saved transport trust attached to its configured endpoint.
+        url: !remoteUrlChanged && storedRemoteUrl ? storedRemoteUrl : remoteUrl,
         config: baseConfig,
         originScopedDeviceAuth: true,
         configuredRemote: !remoteUrlChanged,

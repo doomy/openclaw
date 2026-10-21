@@ -264,11 +264,11 @@ describe("promptRemoteGatewayConfig", () => {
   });
 
   it.each([
-    { port: 18789, sshPort: undefined },
-    { port: 29443, sshPort: 2222 },
+    { port: 18789, sshPort: undefined, url: "ws://127.0.0.1:18789" },
+    { port: 29443, sshPort: 2222, url: "ws://127.0.0.1:18789/" },
   ])(
     "uses discovered Gateway port $port and SSH port $sshPort without retaining an old route",
-    async ({ port, sshPort }) => {
+    async ({ port, sshPort, url }) => {
       detectBinary.mockResolvedValue(true);
       discoverGatewayBeacons.mockResolvedValue([
         { ...createGatewayDiscoveryBeacon(), port, gatewayPort: 41111, sshPort },
@@ -287,14 +287,14 @@ describe("promptRemoteGatewayConfig", () => {
             },
           },
         },
-        text: urlText((params) => String(params.initialValue)),
+        text: urlText(() => url),
         selectResponses: {
           "Select gateway": "0",
           "Connection method": "ssh",
         },
       });
 
-      expect(next.gateway?.remote).toEqual({ url: "ws://127.0.0.1:18789" });
+      expect(next.gateway?.remote).toEqual({ url });
       expect(prompter.note).toHaveBeenCalledWith(
         expect.stringContaining(
           `ssh -N -L 18789:127.0.0.1:${port} <user>@gateway.tailnet.ts.net${sshPort ? ` -p ${sshPort}` : ""}`,

@@ -541,7 +541,7 @@ describe("runSetupWizard", () => {
       token: remoteKey === "token" ? remoteCredential : undefined,
       ...(remoteKey === "password" ? { password: remoteCredential } : {}),
     });
-    expect(remotePromptCalls()).toContainEqual({
+    expect(remotePromptCalls()[0]).toStrictEqual({
       remote: {
         url: "wss://flag.example.com:18789",
         token: remoteKey === "token" ? remoteCredential : undefined,
@@ -549,10 +549,6 @@ describe("runSetupWizard", () => {
       },
       prompter: expect.any(Object),
       options: { secretInputMode: undefined, remoteOriginUrl: "wss://stored.example.com:18789" },
-    });
-    expect(promptRemoteGatewayConfig.mock.calls[0]?.[2]).toStrictEqual({
-      secretInputMode: undefined,
-      remoteOriginUrl: "wss://stored.example.com:18789",
     });
     expect(runtime.log).not.toHaveBeenCalledWith(expect.stringContaining(remoteCredential));
   });
@@ -565,8 +561,12 @@ describe("runSetupWizard", () => {
       preserve: false,
     },
     { name: "an equivalent URL", url: "wss://stored.example.com:18789/", preserve: true },
+    { name: "an equivalent SSH URL", url: "ws://127.0.0.1:18789/", preserve: true },
   ])("scopes interactive remote credentials for $name", async ({ url, preserve }) => {
     const remote = storedRemote({
+      ...(url.startsWith("ws:")
+        ? { url: url.slice(0, -1), transport: "ssh", sshTarget: "operator@gateway.example" }
+        : {}),
       token: "stored-token",
       password: undefined,
       edgeAuth: { "X-Edge-Auth": "test-secret" },
@@ -580,12 +580,12 @@ describe("runSetupWizard", () => {
     expect(probeGatewayReachable).toHaveBeenCalledWith({
       ...configuredRemoteProbeArgs,
       configuredRemote: preserve,
-      url,
+      url: preserve ? remote.url : url,
       token: preserve ? remote.token : undefined,
       config: expect.objectContaining({
         gateway: expect.objectContaining({
           remote: expect.objectContaining({
-            url: "wss://stored.example.com:18789",
+            url: remote.url,
             edgeAuth: { "X-Edge-Auth": "test-secret" },
             tlsFingerprint: "ab".repeat(32),
           }),

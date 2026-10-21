@@ -161,8 +161,11 @@ export async function promptRemoteGatewayConfig(
     validate: validateGatewayWebSocketUrl,
   });
   const url = urlInput.trim() || DEFAULT_GATEWAY_URL;
-  // Discovery choices belong only to the accepted URL, never a subsequent manual edit.
-  const selectedDiscovery = discoveryRemote?.url === url ? discoveryRemote : undefined;
+  // Equivalent spellings keep the selected transport; another endpoint clears it.
+  const selectedDiscovery =
+    discoveryRemote && gatewayCredentialScope(discoveryRemote.url) === gatewayCredentialScope(url)
+      ? discoveryRemote
+      : undefined;
 
   // A saved secret belongs to the selected endpoint, not a newly entered URL or tunnel.
   const existingSecret =
