@@ -1909,6 +1909,9 @@ hottest functions, and sampled time under `broadcastInternal`. This differs from
 `--cpu-profile`, which captures stream admission/release and optional recap
 phases; the two flags cannot be combined.
 
+Add `--presence-deltas` when measuring presence delivery preparation; without this
+capability, clients receive legacy presence snapshots and bypass delta preparation.
+
 Run full CPU attribution in a separate matched pass, replacing `--allocations`
 with `--workload-cpu-profile`. The new mode rejects `--allocations`, `--trace-gc`,
 `--stream-start-allocations`, and retained heap capture; for `memory-soak`, set
