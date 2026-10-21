@@ -22,26 +22,23 @@ const config = {
   },
 };
 let request: Parameters<Handler>[0];
-
+function respondWith(response: Response) {
+  mocks.fetch.mockResolvedValue({ response, release: mocks.release });
+}
 beforeEach(() => {
   mocks.auth.mockResolvedValue({ apiKey: "fixture-key" });
   mocks.release.mockResolvedValue(undefined);
-  mocks.fetch.mockResolvedValue({
-    response: Response.json({ version: "clawrouter.pool.v1" }),
-    release: mocks.release,
-  });
+  respondWith(Response.json({ version: "clawrouter.pool.v1" }));
   capturePluginRegistration({
     id: plugin.id,
-    register(api) {
+    register: (api) =>
       plugin.register({
         ...api,
         registerGatewayMethod: (name, fn, options) => {
-          expect(name).toBe("clawrouter.pool.get");
-          expect(options).toEqual({ scope: "operator.read" });
+          expect([name, options]).toEqual(["clawrouter.pool.get", { scope: "operator.read" }]);
           handler = fn;
         },
-      });
-    },
+      }),
   });
   request = {
     context: { getRuntimeConfig: () => config },
@@ -49,10 +46,7 @@ beforeEach(() => {
     hasCurrentClientAuthority: () => true,
   } as unknown as Parameters<Handler>[0];
 });
-afterEach(() => {
-  vi.clearAllMocks();
-});
-
+afterEach(() => vi.clearAllMocks());
 async function invoke() {
   await handler(request);
   return vi.mocked(request.respond).mock.calls[0]?.[1];
@@ -89,10 +83,7 @@ describe("ClawRouter pool Gateway method", () => {
     [503, {}, "unavailable"],
     [200, { version: "unknown" }, "unavailable"],
   ])("maps HTTP %s to %s safely", async (code, body, state) => {
-    mocks.fetch.mockResolvedValue({
-      response: Response.json(body, { status: code }),
-      release: mocks.release,
-    });
+    respondWith(Response.json(body, { status: code }));
     expect(await invoke()).toMatchObject({ status: state, message: expect.any(String) });
     expect(mocks.release).toHaveBeenCalledOnce();
   });
@@ -107,10 +98,7 @@ describe("ClawRouter pool Gateway method", () => {
     mocks.fetch.mockRejectedValueOnce(new DOMException("fixture-key", "TimeoutError"));
     expect(await invoke()).toMatchObject({ status: "unavailable" });
     vi.mocked(request.respond).mockClear();
-    mocks.fetch.mockResolvedValueOnce({
-      response: new Response("x".repeat(1024 * 1024 + 1)),
-      release: mocks.release,
-    });
+    respondWith(new Response("x".repeat(1024 * 1024 + 1)));
     expect(await invoke()).toMatchObject({ status: "unavailable" });
     expect(mocks.release).toHaveBeenCalledOnce();
     expect(JSON.stringify(vi.mocked(request.respond).mock.calls)).not.toContain("fixture-key");

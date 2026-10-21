@@ -10,7 +10,11 @@ beforeAll(async () => {
 function toolSchema(name: string, parameters: unknown) {
   return [{ name, description: "Test tool", parameters }];
 }
-
+const object = (properties: Record<string, unknown>) => ({ type: "object", properties });
+const emptyObject = object({});
+function normalize(tools: unknown[], modelId = "perplexity/sonar-pro") {
+  return provider.normalizeToolSchemas?.(schemaContext(modelId, tools));
+}
 function schemaContext(modelId: string, tools: unknown[]) {
   return {
     provider: "clawrouter",
@@ -40,16 +44,7 @@ describe("ClawRouter Perplexity tool schemas", () => {
       additionalProperties: false,
     });
 
-    const normalized = provider.normalizeToolSchemas?.(
-      schemaContext("perplexity/sonar-pro", tools),
-    );
-
-    expect(normalized?.[0]?.parameters).toEqual({
-      type: "object",
-      properties: {
-        env: { type: "object", properties: {} },
-      },
-    });
+    expect(normalize(tools)?.[0]?.parameters).toEqual(object({ env: emptyObject }));
     expect(provider.inspectToolSchemas?.(schemaContext("perplexity/sonar-pro", tools))).toEqual([
       {
         toolName: "exec",
@@ -71,14 +66,7 @@ describe("ClawRouter Perplexity tool schemas", () => {
         { type: "object", additionalProperties: true },
         {
           type: "array",
-          items: {
-            type: "object",
-            properties: {
-              value: {
-                anyOf: [{ type: "object" }, { type: "string" }],
-              },
-            },
-          },
+          items: object({ value: { anyOf: [{ type: "object" }, { type: "string" }] } }),
         },
       ],
       $defs: {
@@ -86,51 +74,30 @@ describe("ClawRouter Perplexity tool schemas", () => {
       },
     });
 
-    const normalized = provider.normalizeToolSchemas?.(
-      schemaContext("perplexity/sonar-pro", tools),
-    );
-
-    expect(normalized?.[0]?.parameters).toEqual({
-      type: "object",
-      properties: {},
+    expect(normalize(tools)?.[0]?.parameters).toEqual({
+      ...emptyObject,
       anyOf: [
-        { type: "object", properties: {} },
+        emptyObject,
         {
           type: "array",
-          items: {
-            type: "object",
-            properties: {
-              value: {
-                anyOf: [{ type: "object", properties: {} }, { type: "string" }],
-              },
-            },
-          },
+          items: object({ value: { anyOf: [emptyObject, { type: "string" }] } }),
         },
       ],
-      $defs: {
-        metadata: { type: "object", properties: {} },
-      },
+      $defs: { metadata: emptyObject },
     });
   });
 
   it("treats union types containing object as object schemas", () => {
-    const tools = toolSchema("union", {
-      type: "object",
-      properties: {
+    const tools = toolSchema(
+      "union",
+      object({
         payload: { type: ["object", "null"], additionalProperties: { type: "string" } },
-      },
-    });
-
-    const normalized = provider.normalizeToolSchemas?.(
-      schemaContext("perplexity/sonar-pro", tools),
+      }),
     );
 
-    expect(normalized?.[0]?.parameters).toEqual({
-      type: "object",
-      properties: {
-        payload: { type: ["object", "null"], properties: {} },
-      },
-    });
+    expect(normalize(tools)?.[0]?.parameters).toEqual(
+      object({ payload: { type: ["object", "null"], properties: {} } }),
+    );
     expect(provider.inspectToolSchemas?.(schemaContext("perplexity/sonar-pro", tools))).toEqual([
       {
         toolName: "union",
@@ -154,18 +121,11 @@ describe("ClawRouter Perplexity tool schemas", () => {
       additionalItems: { type: "object", additionalProperties: false },
     });
 
-    const normalized = provider.normalizeToolSchemas?.(
-      schemaContext("perplexity/sonar-pro", tools),
-    );
-
-    expect(normalized?.[0]?.parameters).toEqual({
-      type: "object",
-      properties: {},
-      dependentSchemas: {
-        x: { type: "object", properties: {} },
-      },
-      unevaluatedProperties: { type: "object", properties: {} },
-      additionalItems: { type: "object", properties: {} },
+    expect(normalize(tools)?.[0]?.parameters).toEqual({
+      ...emptyObject,
+      dependentSchemas: { x: emptyObject },
+      unevaluatedProperties: emptyObject,
+      additionalItems: emptyObject,
     });
   });
 
@@ -175,12 +135,7 @@ describe("ClawRouter Perplexity tool schemas", () => {
       patternProperties: { ".*": { type: "string" } },
     });
 
-    const perplexity = provider?.normalizeToolSchemas?.(
-      schemaContext("PeRpLeXiTy/sonar-pro", tools),
-    );
-    const openai = provider?.normalizeToolSchemas?.(schemaContext("openai/gpt-5.5", tools));
-
-    expect(perplexity?.[0]?.parameters).toEqual({ type: "object", properties: {} });
-    expect(openai).toBe(tools);
+    expect(normalize(tools, "PeRpLeXiTy/sonar-pro")?.[0]?.parameters).toEqual(emptyObject);
+    expect(normalize(tools, "openai/gpt-5.5")).toBe(tools);
   });
 });
