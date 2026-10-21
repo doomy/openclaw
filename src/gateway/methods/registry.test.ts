@@ -1,6 +1,3 @@
-/**
- * Gateway method registry tests.
- */
 import { describe, expect, it } from "vitest";
 import { ADMIN_SCOPE, READ_SCOPE, WRITE_SCOPE } from "../operator-scopes.js";
 import type { GatewayRequestHandler } from "../server-methods/types.js";
@@ -13,6 +10,16 @@ import {
 import { createCoreGatewayMethodDescriptors, createGatewayMethodRegistry } from "./registry.js";
 
 const handler: GatewayRequestHandler = ({ respond }) => respond(true, { ok: true });
+const core = (
+  name: string,
+  overrides: Partial<GatewayMethodDescriptorInput> = {},
+): GatewayMethodDescriptorInput => ({
+  name,
+  handler,
+  scope: READ_SCOPE,
+  owner: { kind: "core", area: "test" },
+  ...overrides,
+});
 
 describe("gateway method registry", () => {
   it("requires a profile for session-scoped plugin and core methods", () => {
@@ -30,13 +37,7 @@ describe("gateway method registry", () => {
     });
     const registry = createGatewayMethodRegistry([
       plugin,
-      {
-        name: "core.session",
-        handler,
-        scope: WRITE_SCOPE,
-        owner: { kind: "core", area: "test" },
-        sessionAccess,
-      },
+      core("core.session", { scope: WRITE_SCOPE, sessionAccess }),
     ]);
     expect(registry.requiresAuthenticatedProfile("example.session")).toBe(true);
     expect(registry.requiresAuthenticatedProfile("core.session")).toBe(true);
@@ -51,73 +52,41 @@ describe("gateway method registry", () => {
       createGatewayMethodRegistry([{ ...plugin, scope: "operator.sessions.write" }]),
     ).toThrow("operator.write");
   });
-  it.each(["enumerable", "non-enumerable", "inherited"])(
-    "indexes handlers, scopes, startup state, and control-plane metadata from %s properties",
-    (properties) => {
-      const writeDescriptor: GatewayMethodDescriptorInput = {
-        name: "example.write",
-        handler,
-        scope: WRITE_SCOPE,
-        owner: { kind: "core", area: "test" },
-      };
-      const policy = {
-        startup: "unavailable-until-sidecars",
-        lifetime: "observation",
-        controlPlaneWrite: true,
-        advertise: false,
-      } satisfies Pick<
-        GatewayMethodDescriptorInput,
-        "startup" | "lifetime" | "controlPlaneWrite" | "advertise"
-      >;
-      if (properties === "inherited") {
-        Object.setPrototypeOf(writeDescriptor, policy);
-      } else {
-        Object.defineProperties(
-          writeDescriptor,
-          Object.fromEntries(
-            Object.entries(policy).map(([key, value]) => [
-              key,
-              { value, enumerable: properties === "enumerable" },
-            ]),
-          ),
-        );
+  it.each(["enumerable", "non-enumerable", "inherited"])("indexes %s metadata", (properties) => {
+    const writeDescriptor = core("example.write", { scope: WRITE_SCOPE });
+    const policy = {
+      startup: "unavailable-until-sidecars",
+      lifetime: "observation",
+      controlPlaneWrite: true,
+      advertise: false,
+    } satisfies Partial<GatewayMethodDescriptorInput>;
+    if (properties === "inherited") {
+      Object.setPrototypeOf(writeDescriptor, policy);
+    } else {
+      for (const [key, value] of Object.entries(policy)) {
+        Object.defineProperty(writeDescriptor, key, {
+          value,
+          enumerable: properties === "enumerable",
+        });
       }
-      const registry = createGatewayMethodRegistry([
-        {
-          name: "example.read",
-          handler,
-          scope: READ_SCOPE,
-          owner: { kind: "core", area: "test" },
-        },
-        writeDescriptor,
-      ]);
+    }
+    const registry = createGatewayMethodRegistry([core("example.read"), writeDescriptor]);
 
-      expect(registry.listMethods()).toEqual(["example.read", "example.write"]);
-      expect(registry.listAdvertisedMethods()).toEqual(["example.read"]);
-      expect(registry.getHandler("example.read")).toBe(handler);
-      expect(registry.getScope("example.write")).toBe(WRITE_SCOPE);
-      expect(registry.isStartupUnavailable("example.write")).toBe(true);
-      expect(registry.isObservation("example.write")).toBe(true);
-      expect(registry.isObservation("example.read")).toBe(false);
-      expect(registry.isControlPlaneWrite("example.write")).toBe(true);
-    },
-  );
+    expect(registry.listMethods()).toEqual(["example.read", "example.write"]);
+    expect(registry.listAdvertisedMethods()).toEqual(["example.read"]);
+    expect(registry.getHandler("example.read")).toBe(handler);
+    expect(registry.getScope("example.write")).toBe(WRITE_SCOPE);
+    expect(registry.isStartupUnavailable("example.write")).toBe(true);
+    expect(registry.isObservation("example.write")).toBe(true);
+    expect(registry.isObservation("example.read")).toBe(false);
+    expect(registry.isControlPlaneWrite("example.write")).toBe(true);
+  });
 
   it("rejects duplicate method names", () => {
     expect(() =>
       createGatewayMethodRegistry([
-        {
-          name: "example.duplicate",
-          handler,
-          scope: READ_SCOPE,
-          owner: { kind: "core", area: "test" },
-        },
-        {
-          name: "example.duplicate",
-          handler,
-          scope: WRITE_SCOPE,
-          owner: { kind: "core", area: "test" },
-        },
+        core("example.duplicate"),
+        core("example.duplicate", { scope: WRITE_SCOPE }),
       ]),
     ).toThrow("gateway method already registered: example.duplicate");
   });
@@ -132,10 +101,9 @@ describe("gateway method registry", () => {
   });
 
   it("classifies Claw Add as a control-plane write without lifecycle methods", () => {
-    const descriptors = createCoreGatewayMethodDescriptors({
-      "claws.add.apply": handler,
-    });
-    const registry = createGatewayMethodRegistry(descriptors);
+    const registry = createGatewayMethodRegistry(
+      createCoreGatewayMethodDescriptors({ "claws.add.apply": handler }),
+    );
 
     expect(registry.isControlPlaneWrite("claws.add.apply")).toBe(true);
     for (const method of ["claws.status", "claws.update.apply", "claws.remove.apply"]) {
@@ -161,18 +129,11 @@ describe("gateway method registry", () => {
 
   it("preserves reserved core and aux scopes", () => {
     const registry = createGatewayMethodRegistry([
-      {
-        name: "config.get",
-        handler,
-        scope: READ_SCOPE,
-        owner: { kind: "core", area: "gateway" },
-      },
-      {
-        name: "exec.approvals.get",
-        handler,
+      core("config.get", { owner: { kind: "core", area: "gateway" } }),
+      core("exec.approvals.get", {
         scope: "operator.approvals",
         owner: { kind: "aux", area: "gateway-extra" },
-      },
+      }),
     ]);
 
     expect(registry.getScope("config.get")).toBe(READ_SCOPE);
@@ -180,11 +141,9 @@ describe("gateway method registry", () => {
   });
 
   it("defaults plugin methods without an explicit scope to admin", () => {
-    const descriptors = [
+    const registry = createGatewayMethodRegistry([
       createPluginGatewayMethodDescriptor({ pluginId: "demo", name: "demo.ping", handler }),
-    ];
-
-    const registry = createGatewayMethodRegistry(descriptors);
+    ]);
 
     expect(registry.listMethods()).toEqual(["demo.ping"]);
     expect(registry.getHandler("demo.ping")).toBe(handler);
@@ -193,18 +152,12 @@ describe("gateway method registry", () => {
   });
 
   it("classifies every core method and defaults non-core owners fail-closed", () => {
-    const coreHandlers = Object.fromEntries(
-      listCoreGatewayMethodNames().map((name) => [name, handler]),
+    const coreDescriptors = createCoreGatewayMethodDescriptors(
+      Object.fromEntries(listCoreGatewayMethodNames().map((name) => [name, handler])),
     );
-    const coreDescriptors = createCoreGatewayMethodDescriptors(coreHandlers);
     const registry = createGatewayMethodRegistry([
       ...coreDescriptors,
-      {
-        name: "aux.identity.read",
-        handler,
-        scope: READ_SCOPE,
-        owner: { kind: "aux", area: "test" },
-      },
+      core("aux.identity.read", { owner: { kind: "aux", area: "test" } }),
     ]);
 
     for (const descriptor of coreDescriptors) {
