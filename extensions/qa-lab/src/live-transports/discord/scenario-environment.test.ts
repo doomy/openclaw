@@ -1,13 +1,12 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createFlowInput, runtimeEnv } from "./discord-flow.test-support.js";
 import * as testing from "./discord-live.runtime.js";
 import { discordQaVoiceAutojoinScenario } from "./discord-live.runtime.js";
 import { discordQaTranscriptsVoiceAuthorizationScenario } from "./discord-transcripts-authorization.runtime.js";
 import { createDiscordQaScenarioEnvironment } from "./scenario-environment.js";
 
-const guildId = "123456789012345678";
-const textChannelId = "223456789012345678";
-const sutId = "323456789012345678";
+const { guildId, channelId: textChannelId, sutApplicationId: sutId } = runtimeEnv;
 const driverId = "423456789012345678";
 const voiceChannelId = "523456789012345678";
 
@@ -43,30 +42,9 @@ async function prepareScenario(voiceDestination?: string) {
     accountId: "sut",
     driverIdentity: { id: driverId, bot: true },
     sutIdentity: { id: sutId, bot: true },
-    runtimeEnv: {
-      guildId,
-      channelId: textChannelId,
-      driverBotToken: "driver-token",
-      sutBotToken: "sut-token",
-      sutApplicationId: sutId,
-      voiceChannelId: voiceDestination,
-    },
+    runtimeEnv: { ...runtimeEnv, voiceChannelId: voiceDestination },
   });
-  const prepared = await prepareFlow({
-    config: {},
-    gateway: {
-      baseUrl: "http://127.0.0.1:1",
-      tempRoot: "/unused",
-      workspaceDir: "/unused",
-      runtimeEnv: {},
-      call,
-    },
-    outputDir: "/unused",
-    scenarioId: "discord-voice-test",
-    scenarioTitle: "Discord voice setup",
-    timeoutMs: 60_000,
-    waitForConfigRestartSettle: vi.fn(async () => {}),
-  });
+  const prepared = await prepareFlow(createFlowInput(undefined, call));
   return { call, patches, configureScenario: prepared.discordScenarioContext.configureScenario };
 }
 

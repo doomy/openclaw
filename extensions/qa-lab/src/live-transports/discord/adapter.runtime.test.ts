@@ -4,11 +4,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as credentialLease from "../shared/credential-lease.runtime.js";
 import { createDiscordQaTransportAdapter } from "./adapter.runtime.js";
 import * as channelE2e from "./channel-e2e.js";
+import { createFlowInput, runtimeEnv } from "./discord-flow.test-support.js";
 import * as testing from "./discord-live.runtime.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 const driverId = "423456789012345678";
-const sutId = "323456789012345678";
+const sutId = runtimeEnv.sutApplicationId;
 
 function mockAdapterIo(sutUserId = sutId) {
   const release = vi.fn(async () => {});
@@ -16,13 +17,7 @@ function mockAdapterIo(sutUserId = sutId) {
   vi.spyOn(credentialLease, "acquireQaCredentialLease").mockResolvedValue({
     kind: "discord",
     source: "convex",
-    payload: {
-      guildId: "123456789012345678",
-      channelId: "223456789012345678",
-      driverBotToken: "driver-token",
-      sutBotToken: "sut-token",
-      sutApplicationId: sutId,
-    },
+    payload: runtimeEnv,
     assertHealthy() {},
     heartbeat: vi.fn(async () => {}),
     heartbeatIntervalMs: 30_000,
@@ -60,39 +55,36 @@ function mockAdapterIo(sutUserId = sutId) {
 describe("Discord QA adapter cleanup", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it.each([false, true])(
-    "drains polling before gateway stop and releases afterward (heartbeat stop fails: %s)",
-    async (heartbeatFails) => {
-      const { context, heartbeatStop, poll, release } = mockAdapterIo();
-      const pendingPoll = createDeferred<never>();
-      poll.mockReturnValue(pendingPoll.promise);
-      if (heartbeatFails) {
-        heartbeatStop.mockRejectedValue(new Error("heartbeat shutdown failed"));
-      }
-      const adapter = await createDiscordQaTransportAdapter(context);
-      expect(poll).toHaveBeenCalledOnce();
+  it.each([false, true])("orders cleanup (heartbeat failure: %s)", async (heartbeatFails) => {
+    const { context, heartbeatStop, poll, release } = mockAdapterIo();
+    const pendingPoll = createDeferred<never>();
+    poll.mockReturnValue(pendingPoll.promise);
+    if (heartbeatFails) {
+      heartbeatStop.mockRejectedValue(new Error("heartbeat shutdown failed"));
+    }
+    const adapter = await createDiscordQaTransportAdapter(context);
+    expect(poll).toHaveBeenCalledOnce();
 
-      const drained = vi.fn();
-      const cleanup = adapter.cleanup?.().then(drained);
-      await Promise.resolve();
-      expect(drained).not.toHaveBeenCalled();
-      pendingPoll.reject(new Error("observer stopped"));
-      await cleanup;
+    const drained = vi.fn();
+    const cleanup = adapter.cleanup?.().then(drained);
+    await Promise.resolve();
+    expect(drained).not.toHaveBeenCalled();
+    pendingPoll.reject(new Error("observer stopped"));
+    await cleanup;
 
-      expect(drained).toHaveBeenCalledOnce();
-      expect(heartbeatStop).not.toHaveBeenCalled();
-      expect(release).not.toHaveBeenCalled();
-      const postStopCleanup = adapter.cleanupAfterGatewayStop?.();
-      if (heartbeatFails) {
-        await expect(postStopCleanup).rejects.toThrow("heartbeat shutdown failed");
-      } else {
-        await postStopCleanup;
-      }
-      expect(heartbeatStop).toHaveBeenCalledOnce();
-      expect(release).toHaveBeenCalledOnce();
-      expect(heartbeatStop).toHaveBeenCalledBefore(release);
-    },
-  );
+    expect(drained).toHaveBeenCalledOnce();
+    expect(heartbeatStop).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
+    const postStopCleanup = adapter.cleanupAfterGatewayStop?.();
+    if (heartbeatFails) {
+      await expect(postStopCleanup).rejects.toThrow("heartbeat shutdown failed");
+    } else {
+      await postStopCleanup;
+    }
+    expect(heartbeatStop).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+    expect(heartbeatStop).toHaveBeenCalledBefore(release);
+  });
 
   it("defers native cleanup until Gateway stop and releases even when native cleanup fails", async () => {
     const { context, heartbeatStop, release } = mockAdapterIo();
@@ -115,21 +107,7 @@ describe("Discord QA adapter cleanup", () => {
       ...context,
       adapterOptions: { agentE2e: true },
     });
-    await adapter.prepareFlow?.({
-      config: {},
-      gateway: {
-        baseUrl: "http://127.0.0.1:1",
-        tempRoot: outputDir,
-        workspaceDir: outputDir,
-        runtimeEnv: {},
-        call: vi.fn(),
-      },
-      outputDir,
-      scenarioId: "owned-cleanup",
-      scenarioTitle: "Owned cleanup",
-      timeoutMs: 60_000,
-      waitForConfigRestartSettle: vi.fn(),
-    });
+    await adapter.prepareFlow?.(createFlowInput(outputDir));
     await adapter.cleanup?.();
     expect(nativeCleanup).not.toHaveBeenCalled();
     expect(release).not.toHaveBeenCalled();
