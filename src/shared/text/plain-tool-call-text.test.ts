@@ -49,55 +49,39 @@ const samples = [
 ];
 
 describe("plainToolCallTextFilter streamed projection", () => {
-  it("bounds plain-tool-call parse work for citation replies in token-sized deltas", () => {
-    const source = [
-      "Here is the summary.",
-      ...Array.from(
-        { length: 600 },
-        (_value, index) => `[${index + 1}] Ordinary sentence with words and periods.`,
-      ),
-      "",
-    ].join("\n");
-    const strip = vi.spyOn(toolCallRepair, "stripPlainTextToolCallBlocks");
-    try {
-      const projection = createTextProjection(assistantVisibleTextFilters("delivery", true));
-      for (let offset = 0; offset < source.length; offset += 4) {
-        projection.append(source.slice(offset, offset + 4));
-      }
-      expect(projection.text).toBe(source.trimEnd());
-      // Count the canonical precheck too: ordinary citations no longer require Markdown parsing.
-      const parsedCharacters = strip.mock.calls.reduce(
-        (total, [parsed]) => total + parsed.length,
-        0,
-      );
-      expect(parsedCharacters).toBeLessThan(source.length * 8);
-    } finally {
-      strip.mockRestore();
-    }
-  });
-
   it.each([
-    ["fenced JSON", '```json\n{"name":"example","deps":{"demo":"1.0"}}\n```'],
-    ["fenced tool call", '```text\n[tool:read] {"path":"a.ts"}\n```'],
-    ["unterminated fence", '```text\n[tool:read] {"path":"a.ts"}'],
-  ])("bounds sanitizer work after %s in token-sized deltas", (_name, example) => {
-    const source = `${example}\n\n${"An ordinary explanation continues here.\n".repeat(128)}`;
-    const strip = vi.spyOn(toolCallRepair, "stripPlainTextToolCallBlocks");
-    const regions = vi.spyOn(codeRegions, "findCodeRegions");
+    null,
+    '```json\n{"name":"example","deps":{"demo":"1.0"}}\n```',
+    '```text\n[tool:read] {"path":"a.ts"}\n```',
+    '```text\n[tool:read] {"path":"a.ts"}',
+  ])("bounds sanitizer work in token-sized deltas %#", (example) => {
+    const source =
+      example === null
+        ? [
+            "Here is the summary.",
+            ...Array.from(
+              { length: 600 },
+              (_, i) => `[${i + 1}] Ordinary sentence with words and periods.`,
+            ),
+            "",
+          ].join("\n")
+        : `${example}\n\n${"An ordinary explanation continues here.\n".repeat(128)}`;
+    const spies = [
+      vi.spyOn(toolCallRepair, "stripPlainTextToolCallBlocks"),
+      ...(example === null ? [] : [vi.spyOn(codeRegions, "findCodeRegions")]),
+    ];
     try {
       const projection = createTextProjection(assistantVisibleTextFilters("delivery", true));
       for (let offset = 0; offset < source.length; offset += 4) {
         projection.append(source.slice(offset, offset + 4));
       }
       expect(projection.text).toBe(source.trimEnd());
-      const parsedCharacters = [...strip.mock.calls, ...regions.mock.calls].reduce(
-        (total, [parsed]) => total + parsed.length,
-        0,
-      );
+      const parsedCharacters = spies
+        .flatMap((spy) => spy.mock.calls)
+        .reduce((total, [parsed]) => total + parsed.length, 0);
       expect(parsedCharacters).toBeLessThan(source.length * 8);
     } finally {
-      strip.mockRestore();
-      regions.mockRestore();
+      spies.forEach((spy) => spy.mockRestore());
     }
   });
 
