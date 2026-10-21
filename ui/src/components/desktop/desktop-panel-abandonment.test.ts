@@ -107,36 +107,30 @@ it.each(["credentials", "pending", "returned", "authenticated"] as const)(
     });
     const panel = await openPanel(request, connect);
     try {
-      if (credentials) {
-        await waitForSolid(() =>
-          expect(panel.querySelector(".desktop-credentials")).not.toBeNull(),
-        );
-      } else {
-        await waitForSolid(() => expect(connect).toHaveBeenCalledOnce());
-        if (stage === "returned") {
-          result.resolve(handle);
-          await connect.mock.results[0]!.value;
-        }
-        await panel.updateComplete;
+      await waitForSolid(() =>
+        credentials
+          ? expect(panel.querySelector(".desktop-credentials")).not.toBeNull()
+          : expect(connect).toHaveBeenCalledOnce(),
+      );
+      if (stage === "returned") {
+        result.resolve(handle);
+        await connect.mock.results[0]!.value;
       }
+      await panel.updateComplete;
       expectReleased(request, false);
       panel.presented = false;
       await panel.updateComplete;
+      await panel.updateComplete;
+      expectReleased(request, !authenticated);
       if (authenticated) {
         expect(handle.disconnect).not.toHaveBeenCalled();
         panel.presented = true;
-        await panel.updateComplete;
-        expect(connect).toHaveBeenCalledOnce();
-      } else {
-        await panel.updateComplete;
-        expectReleased(request);
-        result.resolve(handle);
-        if (!credentials) {
-          await connect.mock.results[0]!.value;
-        }
-        await panel.updateComplete;
-        expect(handle.disconnect).toHaveBeenCalledTimes(credentials ? 0 : 1);
       }
+      result.resolve(handle);
+      await connect.mock.results[0]?.value;
+      await panel.updateComplete;
+      expect(handle.disconnect).toHaveBeenCalledTimes(credentials || authenticated ? 0 : 1);
+      expect(connect).toHaveBeenCalledTimes(credentials ? 0 : 1);
       await desktop.unmountPanel(panel);
       await panel.updateComplete;
       expectReleased(request, !authenticated);
