@@ -303,9 +303,10 @@ export function PluginCredentialEditor(props: PluginCredentialEditorProps) {
         }
       }
     })();
-    // Actions own their opening tick; let sibling config projections publish first.
-    await Promise.resolve();
-    return mutateReference(admitted, completed);
+    // An action owns its opening tick, including already queued owner writes.
+    // Let same-turn save/refresh continuations publish before starting presentation.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    return current() ? mutateReference(admitted, completed) : completed;
   }
 
   const environment = () => {
