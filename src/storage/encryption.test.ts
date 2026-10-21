@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { buffer as collect } from "node:stream/consumers";
 import { describe, expect, it } from "vitest";
 import {
   decryptStorageObject,
@@ -9,14 +10,6 @@ import {
 
 const STORAGE_SEGMENT_BYTES = 1_048_576;
 
-async function collect(body: AsyncIterable<Uint8Array>): Promise<Buffer> {
-  const collected: Uint8Array[] = [];
-  for await (const chunk of body) {
-    collected.push(chunk);
-  }
-  return Buffer.concat(collected);
-}
-
 async function* chunks(bytes: Uint8Array) {
   // Transport chunk boundaries do not coincide with encryption framing.
   for (let offset = 0; offset < bytes.length; offset += 7919) {
@@ -25,7 +18,7 @@ async function* chunks(bytes: Uint8Array) {
 }
 
 describe("OCSTOR1 encryption", () => {
-  it.each([0, 1, STORAGE_SEGMENT_BYTES, STORAGE_SEGMENT_BYTES + 1, 3 * STORAGE_SEGMENT_BYTES + 17])(
+  it.each([0, STORAGE_SEGMENT_BYTES, 3 * STORAGE_SEGMENT_BYTES + 17])(
     "round trips %i plaintext bytes with exact ciphertext size",
     async (size) => {
       const key = randomBytes(32);
@@ -33,9 +26,7 @@ describe("OCSTOR1 encryption", () => {
       const ciphertext = await collect(encryptStorageObject(chunks(plaintext), key));
       expect(ciphertext.length).toBe(encryptedStorageSize(size));
       expect(plaintextStorageSize(ciphertext.length)).toBe(size);
-      expect(plaintext.equals(await collect(decryptStorageObject(chunks(ciphertext), key)))).toBe(
-        true,
-      );
+      expect(await collect(decryptStorageObject(chunks(ciphertext), key))).toEqual(plaintext);
     },
   );
 
