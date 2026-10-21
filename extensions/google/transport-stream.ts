@@ -500,7 +500,6 @@ async function openGoogleSseAttempt(params: {
   }
 }
 
-
 function createGoogleTransportStreamFn(kind: CanonicalGoogleTransportApi): StreamFn {
   return (rawModel, context, rawOptions) => {
     const model = rawModel as GoogleTransportModel;
