@@ -55,6 +55,7 @@ export const databaseWorkerCoreTestFiles = [
   "src/test-utils/session-state-cleanup.test.ts",
   "src/infra/database-engine/mixed-agent-readers.conformance.test.ts",
   "src/infra/database-engine/mixed-agent-lifecycle.conformance.test.ts",
+  "src/infra/database-engine/device-pairing.conformance.test.ts",
   "src/infra/database-engine/gateway-session-startup.conformance.test.ts",
   "src/infra/database-engine/conversation-batches.conformance.test.ts",
   "src/infra/database-engine/session-actor.conformance.test.ts",
