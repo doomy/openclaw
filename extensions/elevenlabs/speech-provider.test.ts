@@ -5,19 +5,15 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { isValidElevenLabsVoiceId } from "./shared.js";
 import { buildElevenLabsSpeechProvider } from "./speech-provider-factory.js";
 
-const fetchWithSsrFGuardMock = vi.hoisted(() => vi.fn());
+const guardMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./config-api.js", () => ({
   resolveElevenLabsApiKeyWithProfileFallback: () => null,
 }));
 
 vi.mock("openclaw/plugin-sdk/ssrf-runtime", () => ({
-  fetchWithSsrFGuard: async (params: {
-    url: string;
-    init?: RequestInit;
-    timeoutMs?: number;
-  }): Promise<{ response: Response; release: () => Promise<void> }> => {
-    fetchWithSsrFGuardMock(params);
+  fetchWithSsrFGuard: async (params: { url: string; init?: RequestInit; timeoutMs?: number }) => {
+    guardMock(params);
     return {
       response: await globalThis.fetch(params.url, params.init),
       release: vi.fn(async () => {}),
@@ -75,69 +71,46 @@ describe("elevenlabs speech provider", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    fetchWithSsrFGuardMock.mockClear();
+    guardMock.mockClear();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
   it.each([
-    ["stability", "0", { stability: 0 }],
-    ["similarity", "Infinity", "invalid similarityBoost value"],
-    ["speed", "2.01", "speed must be between 0.5 and 2"],
-    ["speed", "invalid", undefined, false],
-  ] as const)(
-    "preserves the %s=%s voice-setting directive",
-    (key, value, expected, allowed?: boolean) => {
-      const currentOverrides = { voiceId: "existing-voice", voiceSettings: { style: 0.25 } };
-      const allowVoiceSettings = allowed ?? true;
-      const parsed = provider.parseDirectiveToken?.({
+    ["stability", "0", { overrides: { voiceSettings: { style: 0.25, stability: 0 } } }, true],
+    ["similarity", "Infinity", { warnings: ["invalid similarityBoost value"] }, true],
+    ["speed", "2.01", { warnings: ["speed must be between 0.5 and 2"] }, true],
+    ["speed", "invalid", {}, false],
+  ] as const)("preserves the %s=%s voice-setting directive", (key, value, expected, allowed) => {
+    expect(
+      provider.parseDirectiveToken?.({
         key,
         value,
-        policy: { ...DIRECTIVE_POLICY, allowVoiceSettings },
-        currentOverrides,
-      });
-
-      expect(parsed).toEqual(
-        !allowVoiceSettings
-          ? { handled: true }
-          : typeof expected === "string"
-            ? { handled: true, warnings: [expected] }
-            : {
-                handled: true,
-                overrides: {
-                  voiceSettings: { ...currentOverrides.voiceSettings, ...expected },
-                },
-              },
-      );
-    },
-  );
+        policy: { ...DIRECTIVE_POLICY, allowVoiceSettings: allowed },
+        currentOverrides: { voiceId: "existing-voice", voiceSettings: { style: 0.25 } },
+      }),
+    ).toEqual({ handled: true, ...expected });
+  });
 
   it("forwards the core-resolved voice-list timeout", async () => {
     fetchMock.mockResolvedValue(Response.json({ voices: [] }));
     await provider.listVoices?.({ providerConfig: request.providerConfig, timeoutMs: 30_000 });
-    expect(fetchWithSsrFGuardMock).toHaveBeenCalledWith(
-      expect.objectContaining({ timeoutMs: 30_000 }),
-    );
+    expect(guardMock).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 30_000 }));
   });
 
   it("rejects blank credentials across discovery and synthesis before requests", async () => {
     vi.stubEnv("ELEVENLABS_API_KEY", "   ");
     vi.stubEnv("XI_API_KEY", "   ");
-    const providerConfig = { apiKey: "   " };
-    const blankRequest = { ...request, providerConfig };
+    const blankRequest = { ...request, providerConfig: { apiKey: "   " } };
+    const rejectsMissingKey = (result: Promise<unknown> | undefined) =>
+      expect(result).rejects.toThrow("ElevenLabs API key missing");
 
     expect(await provider.isConfiguredAsync?.(blankRequest)).toBe(false);
-    await expect(
-      provider.listVoices?.({ apiKey: "   ", providerConfig, timeoutMs: 1_000 }),
-    ).rejects.toThrow("ElevenLabs API key missing");
-    await expect(provider.synthesize(blankRequest)).rejects.toThrow("ElevenLabs API key missing");
-    await expect(provider.streamSynthesize?.(blankRequest)).rejects.toThrow(
-      "ElevenLabs API key missing",
-    );
-    await expect(provider.synthesizeTelephony?.(blankRequest)).rejects.toThrow(
-      "ElevenLabs API key missing",
-    );
-    expect(fetchWithSsrFGuardMock).not.toHaveBeenCalled();
+    await rejectsMissingKey(provider.listVoices?.({ ...blankRequest, apiKey: "   " }));
+    await rejectsMissingKey(provider.synthesize(blankRequest));
+    await rejectsMissingKey(provider.streamSynthesize?.(blankRequest));
+    await rejectsMissingKey(provider.synthesizeTelephony?.(blankRequest));
+    expect(guardMock).not.toHaveBeenCalled();
   });
 
   it("maps deprecated ElevenLabs TTS model IDs in overrides", async () => {
@@ -150,17 +123,16 @@ describe("elevenlabs speech provider", () => {
   });
 
   it("validates ElevenLabs voice ID length and character rules", () => {
-    const cases = [
-      { value: "a1b2c3d4e5", expected: true },
-      { value: "a".repeat(40), expected: true },
-      { value: "123456789", expected: false },
-      { value: "a".repeat(41), expected: false },
-      { value: "pMsXgVXv3BLz-gSXRplE", expected: false },
-      { value: "../../../etc/passwd", expected: false },
-      { value: "voice?param=value", expected: false },
-    ] as const;
-    for (const testCase of cases) {
-      expect(isValidElevenLabsVoiceId(testCase.value), testCase.value).toBe(testCase.expected);
+    for (const [value, expected] of [
+      ["a1b2c3d4e5", true],
+      ["a".repeat(40), true],
+      ["123456789", false],
+      ["a".repeat(41), false],
+      ["pMsXgVXv3BLz-gSXRplE", false],
+      ["../../../etc/passwd", false],
+      ["voice?param=value", false],
+    ] as const) {
+      expect(isValidElevenLabsVoiceId(value), value).toBe(expected);
     }
   });
 
@@ -191,38 +163,30 @@ describe("elevenlabs speech provider", () => {
     expect(sentRequest().url.searchParams.has("optimize_streaming_latency")).toBe(false);
   });
 
-  it.each([{ outputFormat: "future_123", fileExtension: ".bin", voiceCompatible: false }])(
-    "returns truthful $outputFormat metadata for a voice-note override",
-    async (expected) => {
-      const result = await provider.synthesize({
-        ...request,
-        providerOverrides: { outputFormat: expected.outputFormat },
-      });
-      expect(sentRequest().url.searchParams.get("output_format")).toBe(expected.outputFormat);
-      expect(result).toEqual({ audioBuffer: Buffer.from([1, 2, 3]), ...expected });
-    },
-  );
+  it("returns truthful future_123 metadata for a voice-note override", async () => {
+    const expected = { outputFormat: "future_123", fileExtension: ".bin", voiceCompatible: false };
+    const result = await provider.synthesize({
+      ...request,
+      providerOverrides: { outputFormat: expected.outputFormat },
+    });
+    expect(sentRequest().url.searchParams.get("output_format")).toBe(expected.outputFormat);
+    expect(result).toEqual({ audioBuffer: Buffer.from([1, 2, 3]), ...expected });
+  });
 
   it("returns truthful stream metadata for an output override and releases the stream once", async () => {
     const cancel = vi.fn();
-    fetchMock.mockResolvedValue(
-      new Response(
-        new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.enqueue(new Uint8Array([1, 2, 3]));
-          },
-          cancel,
-        }),
-        { headers: { "content-type": "audio/mpeg" } },
-      ),
-    );
-    const result = expectDefined(
-      await provider.streamSynthesize?.({
-        ...request,
-        providerOverrides: { outputFormat: "pcm_44100" },
-      }),
-      "streamSynthesize result",
-    );
+    const audio = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+      },
+      cancel,
+    });
+    fetchMock.mockResolvedValue(new Response(audio, { headers: { "content-type": "audio/mpeg" } }));
+    const streamSynthesize = expectDefined(provider.streamSynthesize, "streamSynthesize");
+    const result = await streamSynthesize({
+      ...request,
+      providerOverrides: { outputFormat: "pcm_44100" },
+    });
     expect(sentRequest().url.searchParams.get("output_format")).toBe("pcm_44100");
     expect(result).toMatchObject({
       outputFormat: "pcm_44100",
