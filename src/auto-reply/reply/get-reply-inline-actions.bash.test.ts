@@ -87,7 +87,7 @@ it.each([true, false])("keeps Markdown images as chat with bash enabled=%s", asy
     "![nested [diagram]][figure]",
   ]) {
     const input = bashInput(body);
-    input.cfg.commands.bash = enabled;
+    input.cfg.commands = { bash: enabled, text: true };
     expect(await handleInlineActions(input)).toMatchObject({ kind: "continue" });
     expect(execute).not.toHaveBeenCalled();
   }
