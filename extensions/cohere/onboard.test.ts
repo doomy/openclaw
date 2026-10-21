@@ -65,15 +65,9 @@ describe("Cohere onboarding", () => {
   });
 
   it("sets Cohere only when there is no primary model", async () => {
-    const existing: OpenClawConfig = {
-      agents: {
-        defaults: {
-          model: { primary: "openai/gpt-5.5" },
-        },
-      },
-    };
-
-    const result = await configureCohere(existing);
+    const result = await configureCohere({
+      agents: { defaults: { model: { primary: "openai/gpt-5.5" } } },
+    });
 
     expect(resolveAgentModelPrimaryValue(result.agents?.defaults?.model)).toBe("openai/gpt-5.5");
     expect(result.agents?.defaults?.models?.[COHERE_DEFAULT_MODEL_REF]).toEqual({
@@ -109,65 +103,45 @@ describe("Cohere onboarding", () => {
       },
       maxTokensField: "max_tokens",
     };
+    const plainCompat = {
+      supportsStore: false,
+      supportsUsageInStreaming: false,
+      maxTokensField: "max_tokens" as const,
+    };
+    const model = (
+      id: string,
+      overrides: Partial<ModelDefinitionConfig>,
+    ): ModelDefinitionConfig => ({
+      id: `operator-${id}`,
+      name: "My model",
+      reasoning: true,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 256000,
+      maxTokens: 64000,
+      compat: reasoningCompat,
+      ...overrides,
+    });
     const authored: ModelDefinitionConfig[] = [
-      {
-        id: "operator-command-a-plus-05-2026",
-        name: "My model",
-        reasoning: true,
+      model(COHERE_DEFAULT_MODEL_ID, {
         input: ["text", "image"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 128000,
-        maxTokens: 64000,
-        compat: reasoningCompat,
-      },
-      {
-        id: "operator-command-a-03-2025",
-        name: "My model",
+      }),
+      model("command-a-03-2025", {
         reasoning: false,
-        input: ["text"],
         cost: { input: 2.5, output: 10, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 256000,
         maxTokens: 8000,
-        compat: {
-          supportsStore: false,
-          supportsUsageInStreaming: false,
-          maxTokensField: "max_tokens",
-        },
-      },
-      {
-        id: "operator-command-a-reasoning-08-2025",
-        name: "My model",
-        reasoning: true,
-        input: ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 256000,
-        maxTokens: 32000,
-        compat: reasoningCompat,
-      },
-      {
-        id: "operator-command-a-vision-07-2025",
-        name: "My model",
+        compat: plainCompat,
+      }),
+      model(COHERE_COMMAND_A_REASONING_MODEL_ID, { maxTokens: 32000 }),
+      model(COHERE_COMMAND_A_VISION_MODEL_ID, {
         reasoning: false,
         input: ["text", "image"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 128000,
         maxTokens: 8000,
-        compat: {
-          supportsStore: false,
-          supportsUsageInStreaming: false,
-          maxTokensField: "max_tokens",
-        },
-      },
-      {
-        id: "operator-north-mini-code-1-0",
-        name: "My model",
-        reasoning: true,
-        input: ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 256000,
-        maxTokens: 64000,
-        compat: reasoningCompat,
-      },
+        compat: plainCompat,
+      }),
+      model(COHERE_NORTH_MINI_CODE_MODEL_ID, {}),
     ];
     const result = await configureCohere({
       models: {

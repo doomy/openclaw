@@ -12,19 +12,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import plugin from "./index.js";
 import manifest from "./openclaw.plugin.json" with { type: "json" };
 
-const COHERE_COMMAND_A_PLUS_MODEL_ID = "command-a-plus-05-2026";
-const COHERE_COMMAND_A_REASONING_MODEL_ID = "command-a-reasoning-08-2025";
-const COHERE_COMMAND_A_VISION_MODEL_ID = "command-a-vision-07-2025";
+const PLUS = "command-a-plus-05-2026";
+const REASONING = "command-a-reasoning-08-2025";
+const VISION = "command-a-vision-07-2025";
 
-function buildCohereProvider() {
-  return buildManifestModelProviderConfig({
+function requireCohereModel(modelId = PLUS): Model<"openai-completions"> {
+  const provider = buildManifestModelProviderConfig({
     providerId: "cohere",
     catalog: manifest.modelCatalog.providers.cohere,
   });
-}
-
-function requireCohereModel(modelId = COHERE_COMMAND_A_PLUS_MODEL_ID): Model<"openai-completions"> {
-  const provider = buildCohereProvider();
   const model = provider.models?.find((candidate) => candidate.id === modelId);
   if (!model) {
     throw new Error("Cohere catalog did not provide a model");
@@ -143,10 +139,9 @@ describe("Cohere provider plugin", () => {
     } as Context);
 
     expect(params.max_tokens).toBe(2048);
-    expect(params).not.toHaveProperty("max_completion_tokens");
-    expect(params).not.toHaveProperty("store");
-    expect(params).not.toHaveProperty("stream_options");
-    expect(params).not.toHaveProperty("tool_choice");
+    for (const field of ["max_completion_tokens", "store", "stream_options", "tool_choice"]) {
+      expect(params).not.toHaveProperty(field);
+    }
     expect(params.messages).toEqual(
       expect.arrayContaining([expect.objectContaining({ role: "developer", content: "system" })]),
     );
@@ -158,7 +153,7 @@ describe("Cohere provider plugin", () => {
   it("maps Command A+ and Command A Reasoning to Cohere's supported reasoning efforts", () => {
     const context = { messages: [] } as Context;
 
-    for (const modelId of [COHERE_COMMAND_A_PLUS_MODEL_ID, COHERE_COMMAND_A_REASONING_MODEL_ID]) {
+    for (const modelId of [PLUS, REASONING]) {
       expect(captureCoherePayload(context, { modelId, reasoning: "off" }).reasoning_effort).toBe(
         "none",
       );
@@ -171,23 +166,11 @@ describe("Cohere provider plugin", () => {
   it("advertises only tool-capable current Cohere models to modern live sweeps", async () => {
     const provider = await registerSingleProviderPlugin(plugin);
 
-    expect(
-      provider.isModernModelRef?.({ provider: "cohere", modelId: COHERE_COMMAND_A_PLUS_MODEL_ID }),
-    ).toBe(true);
-    expect(
-      provider.isModernModelRef?.({
-        provider: "cohere",
-        modelId: COHERE_COMMAND_A_REASONING_MODEL_ID,
-      }),
-    ).toBe(true);
-    expect(provider.isModernModelRef?.({ provider: "cohere", modelId: "command-a-03-2025" })).toBe(
-      false,
-    );
-    expect(
-      provider.isModernModelRef?.({
-        provider: "cohere",
-        modelId: COHERE_COMMAND_A_VISION_MODEL_ID,
-      }),
-    ).toBe(false);
+    const isModern = (modelId: string) =>
+      provider.isModernModelRef?.({ provider: "cohere", modelId });
+    expect(isModern(PLUS)).toBe(true);
+    expect(isModern(REASONING)).toBe(true);
+    expect(isModern("command-a-03-2025")).toBe(false);
+    expect(isModern(VISION)).toBe(false);
   });
 });
