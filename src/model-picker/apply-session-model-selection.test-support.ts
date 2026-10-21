@@ -100,9 +100,6 @@ vi.mock("../logging/subsystem.js", async (importOriginal) => {
 vi.mock("../gateway/session-worker-placement-context.js", () => ({
   resolveSessionWorkerPlacementContext: () => ({
     workerSessionPlacementService: {
-      getMany: mocks.placementMocks.getMany,
-      getManyAsync: async (sessionIds: readonly string[]) =>
-        mocks.placementMocks.getMany(sessionIds),
       prepareRuntimeRefresh: mocks.placementMocks.prepareRuntimeRefresh,
     },
   }),
