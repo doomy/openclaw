@@ -68,9 +68,12 @@ export function PluginCredentialEditor(props: PluginCredentialEditorProps) {
   };
   const saving = () => operationKind() === "save";
   const cancelling = () => operationKind() === "discard";
-  const mutateReference = action(function* (value: string | SecretRef | undefined) {
-    // Keep acknowledgement-time draft updates outside the held action's continuation.
-    yield commitOrDiscardReference(value);
+  const mutateReference = action(function* (
+    admitted: CredentialOperation,
+    completed: Promise<void>,
+  ) {
+    setOperation(admitted);
+    yield completed;
   });
   let referenceSubmitted = false;
   let referenceTrigger: HTMLElement | null = null;
@@ -230,7 +233,7 @@ export function PluginCredentialEditor(props: PluginCredentialEditorProps) {
       return;
     }
     setError("");
-    return mutateReference(value);
+    return commitOrDiscardReference(value);
   }
 
   async function cancelReference() {
@@ -241,7 +244,7 @@ export function PluginCredentialEditor(props: PluginCredentialEditorProps) {
       setDialogOpen(false);
       return;
     }
-    return mutateReference(undefined);
+    return commitOrDiscardReference(undefined);
   }
 
   async function commitOrDiscardReference(value: string | SecretRef | undefined) {
@@ -261,43 +264,48 @@ export function PluginCredentialEditor(props: PluginCredentialEditorProps) {
     };
     // Admission is synchronous; Solid publishes the pending presentation after this task.
     pending = admitted;
-    setOperation(admitted);
     if (value !== undefined) {
       referenceSubmitted ||= dialogOpen();
     }
-    try {
-      const acknowledged = await (value === undefined
-        ? props.context.onDiscard()
-        : props.context.onCommit(props.field.path, value));
-      if (!current()) {
-        return;
-      }
-      if (acknowledged) {
-        referenceSubmitted = false;
-        setDialogOpen(false);
-        if (value !== undefined) {
-          setLiteral("");
+    // Start the authoritative write before holding the presentation transaction.
+    const completed = (async () => {
+      try {
+        const acknowledged = await (value === undefined
+          ? props.context.onDiscard()
+          : props.context.onCommit(props.field.path, value));
+        if (!current()) {
+          return;
         }
-        await inspect();
-      } else {
-        setError(
-          props.context.saveError ||
-            t(
-              value === undefined
-                ? "configView.discardUnconfirmed"
-                : "pluginsPage.credentials.saveFailed",
-            ),
-        );
+        if (acknowledged) {
+          referenceSubmitted = false;
+          setDialogOpen(false);
+          if (value !== undefined) {
+            setLiteral("");
+          }
+          await inspect();
+        } else {
+          setError(
+            props.context.saveError ||
+              t(
+                value === undefined
+                  ? "configView.discardUnconfirmed"
+                  : "pluginsPage.credentials.saveFailed",
+              ),
+          );
+        }
+      } catch (cause) {
+        if (current()) {
+          setError(formatUiError(cause));
+        }
+      } finally {
+        if (current()) {
+          pending = undefined;
+        }
       }
-    } catch (cause) {
-      if (current()) {
-        setError(formatUiError(cause));
-      }
-    } finally {
-      if (current()) {
-        pending = undefined;
-      }
-    }
+    })();
+    // Actions own their opening tick; let sibling config projections publish first.
+    await Promise.resolve();
+    return mutateReference(admitted, completed);
   }
 
   const environment = () => {

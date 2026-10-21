@@ -171,7 +171,6 @@ it.each(["button", "modal"])("blocks %s dismissal during Save", async (dismissal
   await open(editor);
   click("Save");
   if (dismissal === "button") {
-    expect(button(editor, "Cancel").disabled).toBe(true);
     click("Cancel");
   } else {
     const event = new CustomEvent("modal-cancel", { bubbles: true, cancelable: true });
@@ -180,6 +179,7 @@ it.each(["button", "modal"])("blocks %s dismissal during Save", async (dismissal
   }
   flush();
   expect(modal(editor)).not.toBeNull();
+  await vi.waitFor(() => expect(button(editor, "Cancel").disabled).toBe(true));
   pending.resolve(true);
   await vi.waitFor(() => expect(modal(editor)).toBeNull());
 });
