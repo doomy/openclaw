@@ -1,5 +1,5 @@
 import { createMemo, For } from "solid-js";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 import { CONTROL_UI_SESSION_PULL_REQUESTS_MAX_KEYS } from "../../../src/gateway/control-ui-contract.js";
 import type { GatewayBrowserClient } from "../api/gateway.ts";
 import type { ApplicationGateway } from "../app/gateway.ts";
@@ -197,6 +197,17 @@ it.each(["merged"] as const)(
     await settle(host);
     expectSubscription(harness, [row.key]);
 
+    const store = sessionPullRequestsForGateway(harness.gateway);
+    const activeOwner = {};
+    store.watch(activeOwner, [row.key], { foreground: true });
+    onTestFinished(() => store.unwatch(activeOwner));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(harness.request).toHaveBeenLastCalledWith(
+      SESSION_PULL_REQUESTS_SUBSCRIBE_METHOD,
+      { sessionKeys: [row.key] },
+      { timeoutMs: 30_000, signal: expect.any(AbortSignal) },
+    );
+
     harness.publish(row.key, {
       pullRequests: [
         { number: 2, state },
@@ -221,6 +232,15 @@ it.each(["merged"] as const)(
       numbers: [1, 2],
       state,
     });
+
+    harness.publish(row.key, { status: "unavailable", discardPrevious: true });
+    await host.updateComplete;
+    expect(store.get(row.key)?.pullRequests).toEqual([]);
+    expect(host.textContent).toBe("");
+    expect(host.indicators.count(row.key)).toBe(0);
+    expect(
+      host.indicators.summary(row.key, row.worktreeId ?? "", { numbers: [99], state }),
+    ).toBeUndefined();
 
     harness.publish(row.key);
     await host.updateComplete;
