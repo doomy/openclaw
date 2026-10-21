@@ -1,4 +1,4 @@
-import { For, createEffect, createSignal, onCleanup } from "solid-js";
+import { For, action, createEffect, createOptimistic, createSignal, onCleanup } from "solid-js";
 import type {
   PluginCredentialDescriptor,
   PluginCredentialInspection,
@@ -38,6 +38,10 @@ export type PluginCredentialEditorContext = {
 type CredentialField = Pick<ConfigNodeRenderParams, "path" | "value" | "disabled"> & {
   descriptionId?: string;
 };
+type CredentialOperation = {
+  kind: "save" | "discard";
+  current: () => boolean;
+};
 
 export type PluginCredentialEditorProps = {
   field: CredentialField;
@@ -57,15 +61,23 @@ export function PluginCredentialEditor(props: PluginCredentialEditorProps) {
   });
   const [literal, setLiteral] = createSignal("");
   const [revealed, setRevealed] = createSignal(false);
-  const [operation, setOperation] = createSignal<"save" | "discard">();
-  const saving = () => operation() === "save";
-  const cancelling = () => operation() === "discard";
+  const [operation, setOperation] = createOptimistic<CredentialOperation>();
+  const operationKind = () => {
+    const value = operation();
+    return value?.current() ? value.kind : undefined;
+  };
+  const saving = () => operationKind() === "save";
+  const cancelling = () => operationKind() === "discard";
+  const mutateReference = action(function* (value: string | SecretRef | undefined) {
+    // Keep acknowledgement-time draft updates outside the held action's continuation.
+    yield commitOrDiscardReference(value);
+  });
   let referenceSubmitted = false;
   let referenceTrigger: HTMLElement | null = null;
   let generation = 0;
   let connection: GatewayConnectionScope | null = null;
   let active = true;
-  let pending = false;
+  let pending: CredentialOperation | undefined;
   let literalInput: HTMLInputElement | undefined;
   let referenceSourceSelect: HTMLSelectElement | undefined;
 
@@ -101,7 +113,7 @@ export function PluginCredentialEditor(props: PluginCredentialEditorProps) {
       // Snapshot this revision's editing intent and error copy; neither retriggers inspection.
       const [wasOpen, wasSaving, staleMessage] = [
         dialogOpen(),
-        saving(),
+        pending?.kind === "save",
         t("pluginsPage.credentials.stale"),
       ] as const;
       setRevealed(false);
@@ -114,8 +126,7 @@ export function PluginCredentialEditor(props: PluginCredentialEditorProps) {
         setReference({ source: "env", provider: "default", id: "" });
       }
       if (sourceChanged || next.epoch !== previous?.epoch) {
-        pending = false;
-        setOperation(undefined);
+        pending = undefined;
       }
       setLoading(false);
       setInspection((current) =>
@@ -218,7 +229,8 @@ export function PluginCredentialEditor(props: PluginCredentialEditorProps) {
     ) {
       return;
     }
-    return commitOrDiscardReference(value);
+    setError("");
+    return mutateReference(value);
   }
 
   async function cancelReference() {
@@ -229,7 +241,7 @@ export function PluginCredentialEditor(props: PluginCredentialEditorProps) {
       setDialogOpen(false);
       return;
     }
-    return commitOrDiscardReference(undefined);
+    return mutateReference(undefined);
   }
 
   async function commitOrDiscardReference(value: string | SecretRef | undefined) {
@@ -237,17 +249,21 @@ export function PluginCredentialEditor(props: PluginCredentialEditorProps) {
     const capturedConnection = connection;
     const owner = JSON.stringify([props.context.pluginId, props.field.path]);
     const current = () =>
+      pending === admitted &&
       active &&
       props.context.gateway === gateway &&
       capturedConnection !== null &&
       gateway.isCurrent(capturedConnection) &&
       JSON.stringify([props.context.pluginId, props.field.path]) === owner;
+    const admitted: CredentialOperation = {
+      kind: value === undefined ? "discard" : "save",
+      current,
+    };
     // Admission is synchronous; Solid publishes the pending presentation after this task.
-    pending = true;
-    setOperation(value === undefined ? "discard" : "save");
+    pending = admitted;
+    setOperation(admitted);
     if (value !== undefined) {
       referenceSubmitted ||= dialogOpen();
-      setError("");
     }
     try {
       const acknowledged = await (value === undefined
@@ -279,8 +295,7 @@ export function PluginCredentialEditor(props: PluginCredentialEditorProps) {
       }
     } finally {
       if (current()) {
-        pending = false;
-        setOperation(undefined);
+        pending = undefined;
       }
     }
   }
