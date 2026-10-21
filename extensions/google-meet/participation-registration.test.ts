@@ -26,6 +26,10 @@ const request = {
   requestId: "request-1",
   participationAction: { type: "chat", text: "Hello" },
 };
+type GatewayHandler = (ctx: {
+  params: Record<string, unknown>;
+  respond: ReturnType<typeof vi.fn>;
+}) => Promise<void>;
 
 function setup() {
   const harness = setupGoogleMeetPlugin(plugin);
@@ -36,64 +40,48 @@ function setup() {
   if (!tool) {
     throw new Error("Expected Google Meet tool");
   }
-  return { ...harness, tool };
+  return {
+    ...harness,
+    execute: async (params: Record<string, unknown>) =>
+      (await tool.execute("participation-call", params)).details,
+  };
 }
 
 describe("Google Meet participation and tool registration", () => {
+  let harness: ReturnType<typeof setup>;
   beforeEach(() => {
     runtime.reconcileTranscriptPolicy.mockReset().mockResolvedValue(undefined);
     runtime.participate.mockReset();
+    harness = setup();
   });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+  afterEach(() => vi.restoreAllMocks());
 
   it("returns structured gateway errors for missing session ids", async () => {
-    const { methods } = setup();
-    for (const method of [
-      "googlemeet.leave",
-      "googlemeet.speak",
-      "googlemeet.participationContext",
-      "googlemeet.participate",
-    ]) {
-      const handler = methods.get(method) as
-        | ((ctx: {
-            params: Record<string, unknown>;
-            respond: ReturnType<typeof vi.fn>;
-          }) => Promise<void>)
-        | undefined;
+    for (const action of ["leave", "speak", "participationContext", "participate"]) {
+      const handler = harness.methods.get(`googlemeet.${action}`) as GatewayHandler | undefined;
       const respond = vi.fn();
-
       await handler?.({ params: {}, respond });
-
-      expect(respond).toHaveBeenCalledWith(
-        false,
-        { error: "sessionId required" },
-        {
-          code: "INVALID_REQUEST",
-          message: "sessionId required",
-          details: { error: "sessionId required" },
-        },
-      );
+      const payload = { error: "sessionId required" };
+      expect(respond).toHaveBeenCalledWith(false, payload, {
+        code: "INVALID_REQUEST",
+        message: payload.error,
+        details: payload,
+      });
     }
   });
 
   it("passes action identity and correction references to the runtime once", async () => {
     const resultPayload = { requestId: "request-2", status: "unsupported" };
     runtime.participate.mockResolvedValue(resultPayload);
-    const { tool } = setup();
-
-    const result = await tool.execute("action-call", {
-      action: "participate",
-      sessionId: "meeting-1",
+    const result = await harness.execute({
+      ...request,
       requestId: "request-2",
       sourceId: "source-1",
       correctionOf: "request-1",
       participationAction: { type: "reaction", reaction: "👍" },
     });
 
-    expect(result.details).toEqual(resultPayload);
+    expect(result).toEqual(resultPayload);
     expect(runtime.participate).toHaveBeenCalledExactlyOnceWith("meeting-1", {
       requestId: "request-2",
       sourceId: "source-1",
@@ -112,36 +100,33 @@ describe("Google Meet participation and tool registration", () => {
   ])(
     "rejects malformed Gateway participation input before runtime dispatch: %j",
     async (overrides, message) => {
-      const { methods } = setup();
-      const params = { ...request, ...overrides };
-
       await expect(
-        invokeGoogleMeetGatewayMethodForTest(methods, "googlemeet.participate", params),
+        invokeGoogleMeetGatewayMethodForTest(harness.methods, "googlemeet.participate", {
+          ...request,
+          ...overrides,
+        }),
       ).rejects.toThrow(message);
       expect(runtime.participate).not.toHaveBeenCalled();
     },
   );
 
   it("rejects malformed tool input before sending a Gateway request", async () => {
-    const { tool } = setup();
     const callGateway = vi.fn(async () => ({}));
     vi.spyOn(gatewayRuntime, "callGatewayFromCli").mockImplementation(callGateway);
 
-    const result = await tool.execute("invalid-call", {
+    const result = await harness.execute({
       ...request,
       participationAction: "raise-hand",
     });
 
-    expect(result.details).toEqual({ error: "participationAction.type required" });
+    expect(result).toEqual({ error: "participationAction.type required" });
     expect(callGateway).not.toHaveBeenCalled();
   });
 
   it("preserves runtime participation failures as structured tool results", async () => {
-    const { tool } = setup();
     runtime.participate.mockRejectedValue(new Error("Meeting session is no longer current"));
-
-    const result = await tool.execute("stale-call", request);
-
-    expect(result.details).toEqual({ error: "Meeting session is no longer current" });
+    expect(await harness.execute(request)).toEqual({
+      error: "Meeting session is no longer current",
+    });
   });
 });
