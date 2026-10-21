@@ -59,26 +59,39 @@ function bashInput(
   });
 }
 
-it.each(["! printf fixture", "!(printf fixture)", "/bash printf fixture", "@bot ! printf fixture"])(
-  "dispatches %s through the bash handler before a model turn",
-  async (body) => {
-    const result = await handleInlineActions(bashInput(body, { group: body.startsWith("@bot") }));
-    expect(result).toMatchObject({
-      kind: "reply",
-      reply: { text: expect.stringContaining("fixture output") },
-    });
-    expect(execute).toHaveBeenCalledExactlyOnceWith(
-      "chat-bash",
-      expect.objectContaining({
-        command: body.startsWith("!(") ? "(printf fixture)" : "printf fixture",
-      }),
-    );
-    if (result.kind !== "reply" || !result.reply || Array.isArray(result.reply)) {
-      throw new Error("Expected a command reply");
-    }
-    expect(getReplyPayloadMetadata(result.reply)).toMatchObject({ commandReply: true });
-  },
-);
+it.each([
+  ["! printf fixture", "printf fixture"],
+  ["!(printf fixture)", "(printf fixture)"],
+  ["/bash printf fixture", "printf fixture"],
+  ["@bot ! printf fixture", "printf fixture"],
+  ["![ -f fixture ]", "[ -f fixture ]"],
+])("dispatches %s through the bash handler before a model turn", async (body, command) => {
+  const result = await handleInlineActions(bashInput(body, { group: body.startsWith("@bot") }));
+  expect(result).toMatchObject({
+    kind: "reply",
+    reply: { text: expect.stringContaining("fixture output") },
+  });
+  expect(execute).toHaveBeenCalledExactlyOnceWith(
+    "chat-bash",
+    expect.objectContaining({ command }),
+  );
+  if (result.kind !== "reply" || !result.reply || Array.isArray(result.reply)) {
+    throw new Error("Expected a command reply");
+  }
+  expect(getReplyPayloadMetadata(result.reply)).toMatchObject({ commandReply: true });
+});
+
+it.each([true, false])("keeps Markdown images as chat with bash enabled=%s", async (enabled) => {
+  for (const body of [
+    "![diagram](https://example.com/diagram.png)",
+    "![nested [diagram]][figure]",
+  ]) {
+    const input = bashInput(body);
+    input.cfg.commands.bash = enabled;
+    expect(await handleInlineActions(input)).toMatchObject({ kind: "continue" });
+    expect(execute).not.toHaveBeenCalled();
+  }
+});
 
 it.each(["!poll", "! poll", "!stop", "/bash poll", "@bot ! poll"])(
   "handles %s without executing a shell",

@@ -9,6 +9,7 @@ import { listChatCommands, listChatCommandsForConfig } from "./commands-registry
 import { normalizeCommandBody } from "./commands-registry-normalize.js";
 import type { CommandNormalizeOptions } from "./commands-registry.types.js";
 import { isAbortTrigger } from "./reply/abort-trigger-text.js";
+import { isBangCommandInput } from "./reply/bash-command-input.js";
 import { stripInboundMetadata } from "./reply/strip-inbound-meta.js";
 
 function normalizeControlCommandBody(text?: string, options?: CommandNormalizeOptions): string {
@@ -83,7 +84,7 @@ export function hasCommandSyntax(
   options?: CommandNormalizeOptions,
 ): boolean {
   if (
-    text?.trimStart().startsWith("!") ||
+    isBangCommandInput(text) ||
     isControlCommandMessage(text, cfg, options) ||
     hasInlineCommandTokens(text)
   ) {
@@ -102,5 +103,6 @@ export function shouldComputeCommandAuthorized(
   options?: CommandNormalizeOptions,
 ): boolean {
   // A required group mention can precede the bang; execution strips that mention later.
-  return hasCommandSyntax(text, cfg, options) || /(?:^|\s)!/.test(text ?? "");
+  const bangCandidate = text?.match(/(?:^|\s)(![\s\S]*)/)?.[1];
+  return hasCommandSyntax(text, cfg, options) || isBangCommandInput(bangCandidate);
 }

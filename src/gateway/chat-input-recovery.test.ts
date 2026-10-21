@@ -143,6 +143,11 @@ async function prepareInput(
 describe("interrupted chat input recovery", () => {
   it.each([
     { body: "hello ! poll", literal: true, restartSafe: true },
+    {
+      body: "![diagram](https://example.com/diagram.png)",
+      literal: true,
+      restartSafe: true,
+    },
     { body: "! poll", literal: false, restartSafe: false },
     { body: "!poll", literal: false, restartSafe: false },
     { body: "hello /status", literal: false, restartSafe: false },
