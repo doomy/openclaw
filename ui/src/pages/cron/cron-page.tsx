@@ -17,7 +17,7 @@ export function CronPageContent(props: { page: ReturnType<typeof createCronPage>
     revision();
     return buildCronViewProps(props.page);
   });
-  const header = () => {
+  const pageHeader = () => {
     revision();
     const page = props.page;
     return {
@@ -30,10 +30,10 @@ export function CronPageContent(props: { page: ReturnType<typeof createCronPage>
     <>
       <HubPageHeader
         active="cron"
-        subtitle={header().filtered ? t("cron.list.sessionFilter") : undefined}
+        subtitle={pageHeader().filtered ? t("cron.list.sessionFilter") : undefined}
         docsUrl="https://docs.openclaw.ai/automation/cron-jobs"
         actions={
-          header().filtered ? (
+          pageHeader().filtered ? (
             <a
               class="btn"
               href={pathForRoute("cron", props.page.context().basePath)}
@@ -48,9 +48,9 @@ export function CronPageContent(props: { page: ReturnType<typeof createCronPage>
             </a>
           ) : (
             <AgentScopeControl
-              agents={header().agents}
+              agents={pageHeader().agents}
               selection={props.page.context().agentSelection}
-              selectedId={header().selectedAgentId}
+              selectedId={pageHeader().selectedAgentId}
             />
           )
         }

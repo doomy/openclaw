@@ -303,8 +303,29 @@ return (
 `createProjection` returns a store, not an accessor. Returning a fresh list
 reconciles by `id`, retaining the row presentation as server objects are
 replaced or reordered. Read fields inside JSX/memos; a `For` callback body is
-not a tracking scope. Keep this derivation under the owning `Loading` when
-`props.jobs` reaches an async read. Avoid a writable mirror of the owner.
+not a tracking scope. Avoid a writable mirror of the owner.
+
+Cron consumes readiness in a separate render slot under `Loading`. The table's
+projection only sorts the synchronous optimistic rows:
+
+```tsx
+const readJobs = () => {
+  latest(jobsRead);
+  return null;
+};
+
+return (
+  <Loading fallback={<JobsLoading />}>
+    {readJobs()}
+    <JobsTable jobs={jobs} pending={isPending(jobsRead)} />
+  </Loading>
+);
+```
+
+Keep this read outside the row projection and table construction. A failed
+first read can recover through `Errored` without leaving the projection's
+initialization errored. The table also retains its DOM identity through an
+optimistic transition; a readiness `Show` around it can recreate the rows.
 
 ## Load code at its existing boundary
 

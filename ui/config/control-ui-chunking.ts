@@ -58,14 +58,17 @@ export const controlUiLocaleConfigHintsChunkPrefix = "locale-config-hints-";
 export function controlUiStableChunkName(id: string): string | undefined {
   const normalized = normalizeModuleId(id);
 
+  if (
+    moduleIdIncludesPackage(id, "solid-js") ||
+    moduleIdIncludesPackage(id, "@solidjs/signals") ||
+    moduleIdIncludesPackage(id, "@solidjs/web")
+  ) {
+    // Solid installs action, store, and reveal hooks in its shared runtime.
+    // Keep those initializers together and out of route-only boot groups.
+    return "solid-runtime";
+  }
+
   switch (controlUiBootManifestKey(id)) {
-    case "node_modules/@solidjs/signals/dist/prod/core/verdict.js":
-    case "node_modules/@solidjs/signals/dist/prod/core/action.js":
-    case "node_modules/@solidjs/signals/dist/dev/core/action.js":
-    case "node_modules/@solidjs/signals/dist/prod/affects.js":
-      // Solid initializes these through its shared runtime. Keep them apart
-      // from the lazy Markdown modules in the measured shared boot group.
-      return "solid-actions-runtime";
     case "ui/src/lib/device-pair-setup.ts":
       // Pairing loads on interaction; the earlier boot capture must not pull it into either route.
       return "device-pair-setup-runtime";
@@ -181,6 +184,14 @@ export function createControlUiCodeSplitting(options: { includeBootGroups?: bool
         priority: 10,
         // Already-initial dependencies compress well; the UI source-size cap
         // fragmented them into tiny requests. The asset gzip budget bounds them.
+      },
+      {
+        name: "control-ui-lib",
+        test: (id: string) => normalizeModuleId(id).includes("/ui/src/lib/"),
+        tags: ["$initial"] as ["$initial"],
+        priority: 11,
+        // Keep initial state owners and utilities together across core entry points.
+        maxSize: 1024 * 1024,
       },
       ...(options.includeBootGroups === false
         ? []

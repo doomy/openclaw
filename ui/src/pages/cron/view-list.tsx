@@ -42,6 +42,13 @@ const ENABLED_TABS: Array<{
 ];
 export function ListView(props: CronProps) {
   const scope = createMemo(() => props.reads?.scope() ?? true);
+  // Retry readiness without recreating the table or erroring its row projection.
+  const readJobs = () => {
+    if (props.reads) {
+      latest(props.reads.jobs);
+    }
+    return null;
+  };
   const hasAdvancedJobsFilters = () =>
     props.jobsScheduleKindFilter !== "all" ||
     props.jobsLastStatusFilter !== "all" ||
@@ -112,6 +119,7 @@ export function ListView(props: CronProps) {
                             </JobsTableFrame>
                           }
                         >
+                          {readJobs()}
                           <JobsTable {...props} hasAnyJobsFilters={hasAnyJobsFilters()} />
                         </Loading>
                       )}
@@ -257,17 +265,11 @@ function JobsTable(
   const tableBusy = () =>
     (props.reads ? isPending(props.reads.jobs) : props.loading) || props.jobsLoadingMore;
   const jobs = createProjection(
-    () => {
-      // First readiness and errors still reach the boundary; established rows
-      // remain visible while the owner revalidates their snapshot.
-      if (props.reads) {
-        latest(props.reads.jobs);
-      }
-      return (props.reads ? props.reads.rows() : props.jobs).toSorted(
+    () =>
+      (props.reads ? props.reads.rows() : props.jobs).toSorted(
         (left, right) =>
           Number(isCronJobActiveFailure(right)) - Number(isCronJobActiveFailure(left)),
-      );
-    },
+      ),
     [],
     { key: "id" },
   );
