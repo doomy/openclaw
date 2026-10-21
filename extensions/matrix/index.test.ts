@@ -12,6 +12,7 @@ const runtimeMocks = vi.hoisted(() => ({
   setMatrixRuntime: vi.fn(),
 }));
 
+// mock-isolation: Keep the real account/device CLI runtime out of descriptor registration tests.
 vi.mock("./src/cli.js", () => cliMocks);
 
 vi.mock("./plugin-entry.handlers.runtime.js", () => runtimeMocks);
