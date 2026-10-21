@@ -11,6 +11,7 @@ import { projectRuntimeConfig } from "../../lib/reactive/domain-capabilities.ts"
 import { t } from "../../lib/reactive/i18n.ts";
 import { ClawsCatalogDialog } from "../agents-home/claws-catalog-dialog.tsx";
 import { ClawsExplore } from "../agents-home/claws-explore.tsx";
+import { PluginDetailLoadingHero } from "../plugins/detail-loading-hero.tsx";
 import { isClawsAvailable } from "./availability.ts";
 import { clawCreatorFlow } from "./creator-flow.ts";
 import { clawDraftTargetFromSearch, type ClawDraftTarget } from "./draft-navigation.ts";
@@ -38,14 +39,7 @@ function ClawsLoading() {
     <SettingsPage wide carapace>
       <section class="plugin-catalog-detail plugin-catalog-detail--loading" role="status">
         <div class="plugin-catalog-detail__back skeleton" />
-        <div class="plugin-catalog-detail__hero">
-          <div class="plugin-catalog-detail__icon skeleton" />
-          <div>
-            <div class="plugin-catalog-detail__loading-title skeleton" />
-            <div class="plugin-catalog-detail__loading-publisher skeleton" />
-            <div class="plugin-catalog-detail__loading-summary skeleton" />
-          </div>
-        </div>
+        <PluginDetailLoadingHero />
       </section>
     </SettingsPage>
   );
