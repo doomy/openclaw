@@ -21,6 +21,28 @@ describe("cron form validation", () => {
     },
   );
 
+  it.each([
+    ["main", "agentTurn", false, "announce"],
+    ["main", "systemEvent", false, "none"],
+    ["main", "script", true, "none"],
+    ["main", "command", true, "none"],
+    ["isolated", "script", true, "announce"],
+    ["isolated", "command", true, "announce"],
+  ] as const)(
+    "normalizes announce delivery for %s/%s",
+    (sessionTarget, payloadKind, payloadLocked, deliveryMode) => {
+      expect(
+        normalizeCronFormState({
+          ...DEFAULT_CRON_FORM,
+          sessionTarget,
+          payloadKind,
+          payloadLocked,
+          deliveryMode: "announce",
+        }).deliveryMode,
+      ).toBe(deliveryMode);
+    },
+  );
+
   it("validates key cron form errors", () => {
     const errors = validateCronForm({
       ...DEFAULT_CRON_FORM,

@@ -127,7 +127,8 @@ openclaw automations edit <job-id> \
   --announce --channel telegram --delivery-target owner
 ```
 
-These policies require a non-main job with chat delivery. Owner targeting cannot
+These policies support agent-turn jobs in any supported session, including `main`, and
+non-main command or script jobs with chat delivery. Owner targeting cannot
 be combined with `--to`, `--thread-id`, or `--webhook`. Setting it on an existing
 job clears the previous explicit recipient and thread. Selecting a new explicit
 recipient replaces owner targeting. Use `--clear-delivery-target` or

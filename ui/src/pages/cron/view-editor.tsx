@@ -30,8 +30,8 @@ export function Editor(
   const payloadLocked = () => props.form.payloadLocked;
   const isAgentTurn = () => !payloadLocked() && props.form.payloadKind === "agentTurn";
   const supportsAnnounce = () =>
-    props.form.sessionTarget !== "main" &&
-    (props.form.payloadKind === "agentTurn" || payloadLocked());
+    props.form.payloadKind === "agentTurn" ||
+    (props.form.sessionTarget !== "main" && payloadLocked());
   const selectedDeliveryMode = () =>
     props.form.deliveryMode === "announce" && !supportsAnnounce()
       ? "none"

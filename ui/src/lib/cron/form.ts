@@ -33,8 +33,8 @@ export function normalizeCronFormState(
   }
   if (
     normalized.deliveryMode !== "announce" ||
-    (normalized.sessionTarget !== "main" &&
-      (normalized.payloadKind === "agentTurn" || normalized.payloadLocked))
+    normalized.payloadKind === "agentTurn" ||
+    (normalized.sessionTarget !== "main" && normalized.payloadLocked)
   ) {
     return normalized;
   }

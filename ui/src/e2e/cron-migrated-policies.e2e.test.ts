@@ -31,7 +31,7 @@ const mainJob = createCronJob("evening-checklist", "Evening checklist", {
     skipIfScratchEmpty: true,
     includeReasoning: true,
   },
-  delivery: { mode: "none" },
+  delivery: { mode: "announce", target: "owner", directPolicy: "allow", channel: "telegram" },
 });
 const ownerJob = createCronJob("owner-digest", "Owner digest", {
   enabled: false,
@@ -98,6 +98,12 @@ suite.define(() => {
             .toBe("Review the saved checklist and report meaningful changes.");
           expect(await prompt.isEditable()).toBe(true);
           await capture(page, `${name}-main-agent-turn`, prompt);
+          const delivery = page.locator("#cron-delivery-mode");
+          await capture(page, `${name}-main-announce-delivery`, delivery);
+          expect(await delivery.textContent()).toContain("Announce");
+          expect(await page.locator("#cron-delivery-target").textContent()).toContain(
+            "Owner direct message",
+          );
           await page.locator("details.cron-advanced > summary").click();
           const end = page.locator("#cron-active-hours-end");
           await expect.poll(() => end.inputValue()).toBe("06:00");
@@ -116,6 +122,7 @@ suite.define(() => {
             expectedConfigRevision: mainJob.configRevision,
             patch: {
               sessionTarget: "main",
+              delivery: mainJob.delivery,
               activeHours: { start: "22:00", end: "07:00", timezone: "UTC" },
               idleOnly: false,
               payload: {

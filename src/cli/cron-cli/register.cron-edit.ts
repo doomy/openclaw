@@ -190,7 +190,7 @@ export function registerCronEditCommand(cron: Command) {
             hasExplicitChatDelivery
           ) {
             throw new CronCliError(
-              "--channel, --to, --account, and --thread-id require a non-main agentTurn or command job with delivery.",
+              "--channel, --to, --account, and --thread-id require an agentTurn job or a non-main command or script job with delivery.",
             );
           }
           const webhookUrl =
@@ -619,9 +619,13 @@ export function registerCronEditCommand(cron: Command) {
               const mode = delivery.mode ?? existing.delivery?.mode;
               if (deliveryPolicy.target === "owner" || deliveryPolicy.directPolicy != null) {
                 const resolvedSessionTarget = sessionTarget ?? existing.sessionTarget;
-                if (resolvedSessionTarget === "main" || hasSystemEventPatch) {
+                if (
+                  hasSystemEventPatch ||
+                  (resolvedSessionTarget === "main" &&
+                    (payloadKind ?? existing.payload.kind) !== "agentTurn")
+                ) {
                   throw new CronCliError(
-                    "--delivery-target/--direct-policy require a non-main job; use --session isolated or session:<id>",
+                    "--delivery-target/--direct-policy require an agentTurn job or a non-main job with chat delivery",
                   );
                 }
                 if (mode === "webhook") {

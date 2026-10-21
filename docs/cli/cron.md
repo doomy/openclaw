@@ -210,8 +210,9 @@ Use `--clear-delivery-target` to remove it.
 
 `--direct-policy allow|block` controls direct/DM delivery for the job. The
 default is `allow`; `block` prohibits DMs. Use `--clear-direct-policy` to remove
-the stored policy. These policies require a non-main job with chat delivery,
-and cannot be set and cleared in the same command.
+the stored policy. These policies support agent-turn jobs in any supported session,
+including `main`, and non-main command or script jobs with chat delivery.
+They cannot be set and cleared in the same command.
 
 ### Failure delivery
 
@@ -226,7 +227,7 @@ Jobs with one of those routes default to an execution-failure alert after 2 cons
 Repeated failures with the same cause stay grouped into one incident across Gateway restarts. A changed cause or destination can notify after the cooldown. Successful completion clears the incident silently; the recovery stays in automation history. Skipped runs and unknown delivery outcomes do not count as recovery. If script setup cannot refresh tools after a plugin reload, the alert explains that automatic recovery failed before the script ran.
 
 <Note>
-Main-session jobs may only use `delivery.failureDestination` when primary delivery mode is `webhook`. Isolated jobs accept it in all modes.
+Main-session system-event and script jobs may only use `delivery.failureDestination` when primary delivery mode is `webhook`. Agent-turn and isolated jobs accept it in all modes.
 </Note>
 
 Chat failure notifications include the run start time in the agent's configured user timezone. Webhook message text stays stable and exposes the instant as `runAtMs`.

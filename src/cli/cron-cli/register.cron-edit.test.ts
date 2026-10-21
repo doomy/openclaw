@@ -138,7 +138,7 @@ it.each([
   [["--webhook", "not-a-url"], "--webhook must be a valid http(s) URL"],
   [
     ["--session", "main", "--system-event", "wakeup", "--channel", "telegram"],
-    "require a non-main agentTurn or command job with delivery",
+    "require an agentTurn job or a non-main command or script job with delivery",
   ],
   [["--on-exit-cwd", "/repo"], "--on-exit-cwd requires --on-exit"],
   [["--on-exit", "./watch.sh", "--every", "5m"], "Choose at most one schedule change"],
@@ -310,6 +310,62 @@ it.each([true, false])("creates an ordinary job with explicit %s policies", asyn
       }),
     }),
   );
+});
+
+it("creates a main-session agent turn with owner delivery", async () => {
+  await run([
+    ...addMessage,
+    "--session",
+    "main",
+    "--announce",
+    "--delivery-target",
+    "owner",
+    "--direct-policy",
+    "block",
+  ]);
+  expect(callGatewayFromCli).toHaveBeenCalledWith(
+    "cron.add",
+    expect.anything(),
+    expect.objectContaining({
+      sessionTarget: "main",
+      payload: expect.objectContaining({ kind: "agentTurn", message: "hello" }),
+      delivery: expect.objectContaining({
+        mode: "announce",
+        target: "owner",
+        directPolicy: "block",
+      }),
+    }),
+  );
+});
+
+it("preserves the unflagged main-session agent-turn delivery default", async () => {
+  await run([...addMessage, "--session", "main"]);
+  expect(callGatewayFromCli).toHaveBeenCalledWith(
+    "cron.add",
+    expect.anything(),
+    expect.objectContaining({ sessionTarget: "main", delivery: undefined }),
+  );
+});
+
+it.each([
+  [["--delivery-target", "owner"], { target: "owner", to: null, threadId: null }],
+  [["--direct-policy", "block"], { directPolicy: "block" }],
+] as const)("edits main-session agent-turn delivery with %j", async (args, delivery) => {
+  existing({
+    sessionTarget: "main",
+    payload: turn({ message: "hello" }),
+    delivery: { mode: "announce" },
+  });
+  await edit(args, { delivery });
+  expect(methods()).toEqual(["cron.get", "cron.update", "cron.status"]);
+});
+
+it.each([
+  [{ kind: "systemEvent", text: "tick" }, "--delivery-target", "owner"],
+  [{ kind: "script", script: "return {};" }, "--direct-policy", "block"],
+] as const)("rejects main-session %j chat delivery policies", async (payload, flag, value) => {
+  existing({ sessionTarget: "main", payload, delivery: { mode: "none" } });
+  await rejectEdit([flag, value], "require an agentTurn job or a non-main job", ["cron.get"]);
 });
 
 it("preserves an existing active window when editing one field", async () => {

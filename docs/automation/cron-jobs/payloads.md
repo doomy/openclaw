@@ -440,7 +440,7 @@ With `announce`, agent, command, and script results belong to the chat or topic 
 
     Main-session automation events are self-contained reminders. They include their own job scratch and notices assigned to that occurrence, not another monitor’s checklist or unrelated queued events. Put required instructions in the job payload or scratch.
 
-    Main-session jobs use the owning session's delivery context, not a separate chat announce target. Edits that enable announce delivery, or set a chat target without explicitly choosing no delivery, are rejected without changing the job. Use an isolated job with `--message` and `--announce` for chat delivery. Primary webhook delivery remains supported for main-session jobs.
+    Main-session agent-turn jobs support ordinary announce delivery, including an owner target. Main-session system-event and script jobs cannot use a separate chat announce target; edits that enable it are rejected without changing the job. Primary webhook delivery remains supported for main-session jobs.
 
   </Accordion>
   <Accordion title="What 'fresh session' means for isolated jobs">

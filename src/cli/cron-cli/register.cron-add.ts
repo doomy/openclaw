@@ -279,17 +279,17 @@ export function registerCronAddCommand(cron: Command) {
             if (!sessionTarget) {
               throw new CronCliError("--session must be main, isolated, current, or session:<id>");
             }
-            const isIsolatedLikeSessionTarget = sessionTarget !== "main";
-
             if (opts.deleteAfterRun && opts.keepAfterRun) {
               throw new CronCliError("Choose --delete-after-run or --keep-after-run, not both");
             }
 
             await assertCronCliJobSpec({ sessionTarget, payload: resolvedPayload });
-            const supportsChatDelivery = isIsolatedLikeSessionTarget && isDeliveryPayload;
+            const supportsChatDelivery =
+              isDeliveryPayload &&
+              (sessionTarget !== "main" || resolvedPayload.kind === "agentTurn");
             if ((opts.announce || typeof opts.deliver === "boolean") && !supportsChatDelivery) {
               throw new CronCliError(
-                "--announce/--no-deliver require a non-main agentTurn, command, or script session target.",
+                "--announce/--no-deliver require an agentTurn job or a non-main command or script job.",
               );
             }
 
@@ -306,7 +306,7 @@ export function registerCronAddCommand(cron: Command) {
 
             if (hasChatDeliveryTarget && !supportsChatDelivery) {
               throw new CronCliError(
-                "--channel, --to, --account, and --thread-id require a non-main agentTurn, command, or script job with delivery.",
+                "--channel, --to, --account, and --thread-id require an agentTurn job or a non-main command or script job with delivery.",
               );
             }
             if (hasWebhook && hasChatDeliveryTarget) {
@@ -315,7 +315,8 @@ export function registerCronAddCommand(cron: Command) {
 
             const deliveryMode = hasWebhook
               ? "webhook"
-              : supportsChatDelivery
+              : supportsChatDelivery &&
+                  (sessionTarget !== "main" || hasAnnounce || hasNoDeliver || hasChatDeliveryTarget)
                 ? hasNoDeliver
                   ? "none"
                   : "announce"
