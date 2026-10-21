@@ -24,17 +24,10 @@ const config: OpenClawConfig = {
   auth: { profiles: { "openai:default": { provider: "openai", mode: "oauth" } } },
   agents: { entries: { main: {}, worker: {} } },
 };
+const credentials = { access: "synthetic-access", refresh: "synthetic-refresh", expires: 2e12 };
 const managedStore: AuthProfileStore = {
   version: 1,
-  profiles: {
-    "openai:default": {
-      type: "oauth",
-      provider: "openai",
-      access: "synthetic-managed-access",
-      refresh: "synthetic-managed-refresh",
-      expires: 1_893_456_000_000,
-    },
-  },
+  profiles: { "openai:default": { type: "oauth", provider: "openai", ...credentials } },
 };
 
 const checks: HealthCheck[] = [];
@@ -65,16 +58,12 @@ it("reports the retired native profile in Doctor and startup without importing c
   const clock = createGatewaySchedulerClock();
   const host = createTestGatewayScheduler(clock.clock);
   const scheduler = createTestPluginServiceScheduler(host);
-  onTestFinished(async () => {
-    await scheduler.stop();
-    await host.stop();
-  });
+  onTestFinished(() => scheduler.stop().then(() => host.stop()));
   setRuntimeConfigSnapshot(config);
   const nativeHome = path.join(state.home, ".codex");
   await fs.mkdir(nativeHome, { recursive: true });
-  const nativeAuth = JSON.stringify({
-    tokens: { access_token: "access", refresh_token: "refresh" },
-  });
+  const nativeAuth =
+    '{"tokens":{"access_token":"synthetic-access","refresh_token":"synthetic-refresh"}}';
   await fs.writeFile(path.join(nativeHome, "auth.json"), nativeAuth);
   const findings = await detect();
   expect(findings).toEqual([warning("2026.9.5", IMPORT_COMMAND)]);
