@@ -8,6 +8,7 @@ import { mountSolid } from "../../../test-helpers/mount-solid.ts";
 import { createStorageMock } from "../../../test-helpers/storage.ts";
 import {
   createBrowserClient,
+  createBrowserPanelTestMetrics,
   createInspectedNode,
   stubScreenshotMedia,
   TestBrowserPanelHost,
@@ -61,14 +62,6 @@ export function fakeNativeBrowser(tabs: NativeBrowserTab[] = [], legacy = false)
         return { ok: true, node: createInspectedNode("Save") };
       case "download":
         return { ok: true, cancelled: false };
-      case "back":
-      case "forward":
-      case "navigate":
-      case "present":
-      case "release-scope":
-      case "reload":
-      case "stop":
-        break;
     }
     return { ok: true };
   });
@@ -90,50 +83,37 @@ export function setupNativeBrowserPanelTests() {
 
   function controllerFixture(screencast = false, sessionKey = "") {
     let remoteOpen = true;
+    const remote = { targetId: "remote", url: "https://remote.test/" };
     const { client, request } = createBrowserClient(
-      async (envelope) => {
-        if (envelope.method === "DELETE" && envelope.path === "/tabs/remote") {
+      async ({ method, path }) => {
+        if (method === "DELETE" && path === "/tabs/remote") {
           remoteOpen = false;
           return { ok: true };
         }
-        if (envelope.path === "/tabs" && !remoteOpen) {
-          return { running: true, tabs: [] };
+        switch (path) {
+          case "/tabs":
+            return {
+              running: true,
+              tabs: remoteOpen ? [{ ...remote, tabId: "remote", title: "Remote" }] : [],
+            };
+          case "/screencast":
+            return { ...remote, token: "token", wsPath: "/browser/screencast?token=token" };
+          case "/screenshot":
+            return { ...remote, path: "/fresh.png" };
+          case "/download":
+            return { download: { path: "/managed/remote.png", suggestedFilename: "remote.png" } };
+          case "/act":
+            return createBrowserPanelTestMetrics(remote.url, "Remote");
+          default:
+            return { ok: true };
         }
-        if (envelope.path === "/tabs") {
-          return {
-            running: true,
-            tabs: [
-              { tabId: "remote", targetId: "remote", title: "Remote", url: "https://remote.test/" },
-            ],
-          };
-        }
-        if (envelope.path === "/screencast") {
-          return {
-            token: "token",
-            wsPath: "/browser/screencast?token=token",
-            targetId: "remote",
-            url: "https://remote.test/",
-          };
-        }
-        if (envelope.path === "/screenshot") {
-          return { path: "/fresh.png", targetId: "remote", url: "https://remote.test/" };
-        }
-        if (envelope.path === "/download") {
-          return { download: { path: "/managed/remote.png", suggestedFilename: "remote.png" } };
-        }
-        if (envelope.path === "/act") {
-          return {
-            result: { cssWidth: 100, cssHeight: 100, title: "Remote", url: "https://remote.test/" },
-          };
-        }
-        return { ok: true };
       },
       { screencast },
     );
     const host = new TestBrowserPanelHost(client);
     host.sessionKey = sessionKey;
     document.body.append(host.renderRoot);
-    const stage = host.renderRoot.querySelector<HTMLElement>(".bp-stage")!;
+    const stage = host.stage;
     hit = stage;
     const controller = host.createPanel();
     cleanups.push(controller.native.presentation.mountStage(stage));
@@ -148,9 +128,7 @@ export function setupNativeBrowserPanelTests() {
   function flushFrames() {
     const pending = [...frames.values()];
     frames.clear();
-    for (const frame of pending) {
-      frame(0);
-    }
+    pending.forEach((frame) => frame(0));
   }
 
   beforeEach(() => {
@@ -159,20 +137,15 @@ export function setupNativeBrowserPanelTests() {
     hit = null;
     vi.stubGlobal("localStorage", createStorageMock());
     // Geometry and hit testing below own this no-layout native presentation.
-    vi.stubGlobal(
-      "ResizeObserver",
-      class {
-        observe() {}
-        unobserve() {}
-        disconnect() {}
-      },
-    );
+    class GeometryObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", GeometryObserver);
     vi.stubGlobal(
       "IntersectionObserver",
-      class {
-        observe() {}
-        unobserve() {}
-        disconnect() {}
+      class extends GeometryObserver {
         takeRecords() {
           return [];
         }
@@ -188,12 +161,8 @@ export function setupNativeBrowserPanelTests() {
   });
 
   afterEach(() => {
-    for (const cleanup of cleanups.splice(0)) {
-      cleanup();
-    }
-    for (const controller of controllers.splice(0)) {
-      controller.suspendView();
-    }
+    cleanups.splice(0).forEach((cleanup) => cleanup());
+    controllers.splice(0).forEach((controller) => controller.suspendView());
     document.body.replaceChildren();
     vi.useRealTimers();
     vi.unstubAllGlobals();
