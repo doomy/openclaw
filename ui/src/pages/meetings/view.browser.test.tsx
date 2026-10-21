@@ -17,6 +17,7 @@ const query = <T extends HTMLElement = HTMLElement>(selector: string) =>
 const rect = (element: Element) => element.getBoundingClientRect();
 const keydown = (element: Element, key: string) =>
   element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+const speech = { sequence: 0, speakerLabel: "Avery", text: "Unbroken".repeat(120) };
 async function viewport(width = 1440, height = 1000) {
   const { page } = await import("vitest/browser");
   await page.viewport(width, height);
@@ -27,13 +28,7 @@ function mountView(next: TranscriptsViewProps) {
 }
 
 beforeEach(() => {
-  props = readerProps();
-  const [value, setValue] = createSignal(props);
-  updateView = (next) => setValue({ ...next });
-  ({ container } = mountSolid(() => <TranscriptsView {...value()} />));
-});
-function readerProps(): TranscriptsViewProps {
-  return {
+  props = {
     basePath: "",
     now: Date.parse(meetingEntry.updatedAt),
     search: "?selector=meeting",
@@ -46,12 +41,7 @@ function readerProps(): TranscriptsViewProps {
     listError: null,
     reader: {
       summary: meetingPage,
-      pages: [
-        {
-          ...meetingPage,
-          utterances: [{ sequence: 0, speakerLabel: "Avery", text: "Unbroken".repeat(120) }],
-        },
-      ],
+      pages: [{ ...meetingPage, utterances: [speech] }],
       loading: false,
       error: null,
     },
@@ -64,7 +54,10 @@ function readerProps(): TranscriptsViewProps {
     onReaderTab: vi.fn(),
     onDownload: vi.fn(),
   };
-}
+  const [value, setValue] = createSignal(props);
+  updateView = (next) => setValue({ ...next });
+  ({ container } = mountSolid(() => <TranscriptsView {...value()} />));
+});
 
 describe.skipIf(!hasBrowserLayout)("meeting transcript responsive reader", () => {
   it("keeps long speaker text inside the reading column and switches to a mobile drill-in", async () => {
@@ -84,8 +77,7 @@ describe.skipIf(!hasBrowserLayout)("meeting transcript responsive reader", () =>
     transcript.focus();
     keydown(transcript, "ArrowLeft");
     expect(document.activeElement).toBe(summary);
-    expect(summary.getAttribute("aria-selected")).toBe("false");
-    expect(transcript.getAttribute("aria-selected")).toBe("true");
+    expect([summary.ariaSelected, transcript.ariaSelected]).toEqual(["false", "true"]);
     expect(props.onReaderTab).not.toHaveBeenCalled();
     keydown(summary, "Enter");
     expect(props.onReaderTab).toHaveBeenCalledExactlyOnceWith("summary");
@@ -143,17 +135,12 @@ describe.skipIf(!hasBrowserLayout)("meeting transcript responsive reader", () =>
     };
     mountView(props);
     const notes = query(".meetings-notes");
-    expect([...notes.querySelectorAll("h2")].map((heading) => heading.textContent)).toEqual([
-      "Next steps",
-    ]);
+    expect(
+      ["h2", "p", "li"].map((tag) => [...notes.querySelectorAll(tag)].map((el) => el.textContent)),
+    ).toEqual([["Next steps"], ["First paragraph.", "Second paragraph."], ["Follow up."]]);
     expect(notes.textContent).not.toContain("Raw recorded speech.");
     expect(notes.querySelector("code")?.textContent).toContain("## Transcript");
     const paragraphs = notes.querySelectorAll("p");
-    expect([...paragraphs].map((paragraph) => paragraph.textContent)).toEqual([
-      "First paragraph.",
-      "Second paragraph.",
-    ]);
-    expect(notes.querySelector("li")?.textContent).toBe("Follow up.");
     const lineHeight = Number.parseFloat(getComputedStyle(paragraphs[0]!).lineHeight);
     expect(rect(paragraphs[1]!).top - rect(paragraphs[0]!).bottom).toBeLessThan(lineHeight * 2);
   });
