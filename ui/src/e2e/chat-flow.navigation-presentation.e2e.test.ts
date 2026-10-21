@@ -322,6 +322,10 @@ suite.define(() => {
       );
     }
 
+    // Resizing can leave a sidebar hovercard over the pane's click target.
+    await page.mouse.move(0, 0);
+    await page.keyboard.press("Escape");
+    await page.locator(".session-progress-hovercard").waitFor({ state: "hidden" });
     await panes.first().click({ position: { x: 20, y: 80 } });
     await expect.poll(() => cells.first().getAttribute("class")).toContain("--active");
     await expect.poll(visibleActionLabels).toEqual([activeActions, ["Details"]]);
