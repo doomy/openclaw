@@ -76,8 +76,9 @@ export function controlUiStableChunkName(id: string): string | undefined {
       // Pending New Session previews must render while the Chat route entry waits.
       return "chat-route-entry";
     case "ui/src/i18n/locales/en-chat-composer.ts":
-      // Shared copy must not pull either lazy rendering route into the other.
-      return "chat-composer-english";
+    case "ui/src/i18n/locales/en-chat-session.ts":
+      // Share deferred English compression without combining either route's renderers.
+      return "chat-english";
     case "ui/src/pages/devices/devices-page.tsx":
       return "devices-page";
     case "ui/src/pages/plugins/plugins-page.tsx":
@@ -196,10 +197,10 @@ export function createControlUiCodeSplitting(options: { includeBootGroups?: bool
                 includeDependenciesRecursively: true,
                 // Shared boot needs a smaller partition cap because its dense chat
                 // modules can exceed the compressed-size budget after regrouping.
-                // Keep disclosure JSX in its chat partition instead of splitting
-                // compression dictionaries. Shipped byte/request budgets still apply.
+                // Chat-only code can share a larger compression dictionary;
+                // shipped byte/request budgets still bound the output.
                 minSize: 128 * 1024,
-                maxSize: (route === "shared" ? 1280 : route === "chat" ? 1440 : 1408) * 1024,
+                maxSize: (route === "shared" ? 1280 : route === "chat" ? 1664 : 1408) * 1024,
               };
             }),
             ...(["shared", "new", "chat"] as const).map((route) => {
