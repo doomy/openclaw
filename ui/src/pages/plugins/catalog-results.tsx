@@ -327,7 +327,7 @@ function CatalogSection(params: {
         <CatalogDiscoverySection
           id={params.id}
           title={params.title}
-          onViewAll={params.onViewAll}
+          onViewAll={params.onViewAll ? () => params.onViewAll?.() : undefined}
           viewAllLabel={t("pluginsPage.viewAllInstalledPlugins")}
         >
           {params.loading ? (
@@ -448,7 +448,7 @@ function RawResults(props: PluginCatalogResultsProps): JSX.Element {
                 type="button"
                 class="btn btn--sm oc-action oc-action-secondary"
                 disabled={props.loadingMore}
-                onClick={props.onLoadMore}
+                onClick={() => props.onLoadMore()}
               >
                 {t(props.loadingMore ? "pluginsPage.loadingMore" : "pluginsPage.loadMore")}
               </button>

@@ -1,4 +1,14 @@
-import { createStore, For, onCleanup, Show } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  createStore,
+  Errored,
+  For,
+  Loading,
+  onSettled,
+  Repeat,
+  Show,
+} from "solid-js";
 import type { IconName } from "../../components/icon-data.ts";
 import {
   CatalogDiscoveryChip,
@@ -11,6 +21,7 @@ import { Icon } from "../../components/solid/icon.tsx";
 import { SettingsPage } from "../../components/solid/settings-ui.tsx";
 import { registerClawsEnglish } from "../../i18n/locales/en-claws.ts";
 import { formatUiError } from "../../lib/format-error.ts";
+import type { GatewayConnectionScope } from "../../lib/gateway-connection-lifecycle.ts";
 import { canCallGatewayMethod } from "../../lib/gateway-methods.ts";
 import { useApplication } from "../../lib/reactive/context.ts";
 import { useGatewayPage } from "../../lib/reactive/gateway-page.ts";
@@ -83,122 +94,89 @@ function ClawCard(props: {
 
 export function ClawsExplore(props: { onSelect?: (entry: ClawCatalogEntry) => void }) {
   const context = useApplication();
-  const [view, setView] = createStore<{
-    entries: ClawCatalogEntry[];
-    featured: ClawCatalogEntry[];
-    sections: ClawSection[];
+  const [view, setView] = createStore({ query: "", category: "" });
+  const [request, setRequest] = createSignal<{
+    scope: GatewayConnectionScope;
     query: string;
     category: string;
-    loading: boolean;
-    error: string | null;
-  }>({
-    entries: [],
-    featured: [],
-    sections: [],
-    query: "",
-    category: "",
-    loading: false,
-    error: null,
-  });
-  const updateView = (patch: Partial<typeof view>) => {
-    setView((state) => {
-      Object.assign(state, patch);
-    });
-  };
-  let searchRevision = 0;
-  let searchTimer: ReturnType<typeof setTimeout> | null = null;
+    ready?: Promise<void>;
+    isCurrent: () => boolean;
+  }>();
   let loadedForConnection = false;
-  const clearSearchTimer = () => {
-    if (searchTimer) {
-      clearTimeout(searchTimer);
-      searchTimer = null;
-    }
-  };
+  let cancelSearch = () => {};
   const canSearch = () =>
     canCallGatewayMethod(gateway.snapshot, "claws.catalog.search", "operator.read");
   const gateway = useGatewayPage({
     getGateway: () => context.gateway,
-    onIdentityChange: () => updateView({ query: "", category: "" }),
+    onIdentityChange: () =>
+      setView((draft) => {
+        draft.query = "";
+        draft.category = "";
+      }),
     invalidateRequests: () => {
-      searchRevision += 1;
-      clearSearchTimer();
+      cancelSearch();
       loadedForConnection = false;
-      updateView({ entries: [], featured: [], sections: [], loading: false, error: null });
+      setRequest(undefined);
     },
-    onSnapshot: () => {
+    onSnapshot: ({ identityChanged }) => {
       if (gateway.connected && canSearch() && !loadedForConnection) {
-        void loadCatalog();
+        loadCatalog(identityChanged ? "" : view.category, identityChanged ? "" : view.query);
       }
     },
   });
-  onCleanup(clearSearchTimer);
+  onSettled(() => () => cancelSearch());
 
-  async function loadCatalog(category = view.category, query = view.query) {
+  function loadCatalog(category = view.category, query = view.query, delay = 0) {
+    cancelSearch();
     const scope = gateway.capture();
     if (!scope || !canSearch()) {
       return;
     }
-    const revision = ++searchRevision;
     loadedForConnection = true;
-    updateView({ entries: [], featured: [], sections: [], loading: true, error: null });
-    try {
-      const overview = !query.trim() && !category;
-      const [entries, featured, sections] = await Promise.all([
-        overview
-          ? Promise.resolve([])
-          : searchClaws(scope.client, query, undefined, { category: category || undefined }),
-        overview
-          ? searchClaws(scope.client, "", SECTION_SIZE, { featured: true })
-          : Promise.resolve([]),
-        overview
-          ? Promise.all(
-              clawCategories.slice(1).map(async (item): Promise<ClawSection> => ({
-                category: item,
-                entries: await searchClaws(scope.client, "", SECTION_SIZE, { category: item[0] }),
-              })),
-            )
-          : Promise.resolve([]),
-      ]);
-      if (gateway.isCurrent(scope) && revision === searchRevision) {
-        updateView({
-          entries,
-          featured,
-          sections: sections.filter((section) => section.entries.length > 0),
-        });
-      }
-    } catch (error) {
-      if (gateway.isCurrent(scope) && revision === searchRevision) {
-        updateView({ error: formatUiError(error, t("clawsCatalog.unavailable")) });
-      }
-    } finally {
-      if (gateway.isCurrent(scope) && revision === searchRevision) {
-        updateView({ loading: false });
-      }
-    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let resume: (() => void) | undefined;
+    const ready = delay
+      ? new Promise<void>((resolve) => {
+          resume = resolve;
+          timer = setTimeout(resolve, delay);
+        })
+      : undefined;
+    cancelSearch = () => {
+      cancelled = true;
+      clearTimeout(timer);
+      resume?.();
+    };
+    setRequest({
+      scope,
+      query,
+      category,
+      ready,
+      isCurrent: () =>
+        !cancelled &&
+        gateway.isCurrent(scope) &&
+        canCallGatewayMethod(context.gateway.snapshot, "claws.catalog.search", "operator.read"),
+    });
   }
 
   function search(query: string) {
-    searchRevision += 1;
-    clearSearchTimer();
-    updateView({ query, entries: [], featured: [], sections: [], loading: true, error: null });
-    searchTimer = setTimeout(() => {
-      searchTimer = null;
-      void loadCatalog(view.category, query);
-    }, 150);
+    setView((draft) => {
+      draft.query = query;
+    });
+    loadCatalog(view.category, query, 150);
   }
 
   function selectCategory(category: string) {
     if (category === view.category) {
       return;
     }
-    searchRevision += 1;
-    clearSearchTimer();
-    updateView({ category, entries: [], featured: [], sections: [], loading: true, error: null });
-    void loadCatalog(category);
+    setView((draft) => {
+      draft.category = category;
+    });
+    loadCatalog(category);
   }
 
   const unavailable = () => gateway.connected && !canSearch();
-  const overview = () => !view.query.trim() && !view.category;
   return (
     <openclaw-claws-explore>
       <HubPageHeader
@@ -245,83 +223,136 @@ export function ClawsExplore(props: { onSelect?: (entry: ClawCatalogEntry) => vo
                   {t("clawsCatalog.unavailable")}
                 </div>
               </Show>
-              <Show when={view.error}>
-                <div class="callout danger" role="alert">
-                  {view.error}
-                  <button type="button" class="btn btn--sm" onClick={() => void loadCatalog()}>
-                    {t("clawsCatalog.retry")}
-                  </button>
-                </div>
-              </Show>
-              <Show when={view.loading}>
-                <div
-                  class="plugin-catalog-grid"
-                  role="status"
-                  aria-label={t("clawsCatalog.loading")}
-                >
-                  <For each={[0, 1, 2, 3]}>
-                    {() => <div class="agents-home__claw-skeleton" aria-hidden="true" />}
-                  </For>
-                </div>
-              </Show>
-              <Show
-                when={
-                  gateway.connected &&
-                  !unavailable() &&
-                  !view.loading &&
-                  !view.error &&
-                  view.entries.length === 0 &&
-                  view.featured.length === 0 &&
-                  view.sections.length === 0
-                }
-              >
-                <p class="agents-home__claw-empty">{t("clawsCatalog.empty")}</p>
-              </Show>
-              <Show when={view.featured.length > 0 && overview()}>
-                <CatalogDiscoverySection id="featured" title={t("clawsCatalog.featured")}>
-                  <div class="plugin-catalog-grid" data-claws-featured>
-                    <For each={view.featured} keyed={(entry) => entry.packageName}>
-                      {(entry) => <ClawCard entry={entry()} onSelect={props.onSelect} />}
-                    </For>
-                  </div>
-                </CatalogDiscoverySection>
-              </Show>
-              <Show when={overview()}>
-                <For each={view.sections} keyed={(section) => section.category[0]}>
-                  {(section) => (
-                    <CatalogDiscoverySection
-                      id={section().category[0]}
-                      title={t(section().category[1])}
-                      onViewAll={() => selectCategory(section().category[0])}
-                      viewAllLabel={t("clawsCatalog.viewAll")}
+              <Show when={request()} keyed>
+                {(current) => {
+                  const overview = !current.query.trim() && !current.category;
+                  const result = createMemo(async () => {
+                    if (current.ready) {
+                      await current.ready;
+                    }
+                    if (!current.isCurrent()) {
+                      return { entries: [], featured: [], sections: [] as ClawSection[] };
+                    }
+                    const [entries, featured, sections] = await Promise.all([
+                      overview
+                        ? Promise.resolve([])
+                        : searchClaws(current.scope.client, current.query, undefined, {
+                            category: current.category || undefined,
+                          }),
+                      overview
+                        ? searchClaws(current.scope.client, "", SECTION_SIZE, { featured: true })
+                        : Promise.resolve([]),
+                      overview
+                        ? Promise.all(
+                            clawCategories.slice(1).map(async (category): Promise<ClawSection> => ({
+                              category,
+                              entries: await searchClaws(current.scope.client, "", SECTION_SIZE, {
+                                category: category[0],
+                              }),
+                            })),
+                          )
+                        : Promise.resolve([]),
+                    ]);
+                    return {
+                      entries,
+                      featured,
+                      sections: sections.filter((section) => section.entries.length > 0),
+                    };
+                  });
+                  return (
+                    <Errored
+                      fallback={(error) => (
+                        <div class="callout danger" role="alert">
+                          {formatUiError(error(), t("clawsCatalog.unavailable"))}
+                          <button type="button" class="btn btn--sm" onClick={() => loadCatalog()}>
+                            {t("clawsCatalog.retry")}
+                          </button>
+                        </div>
+                      )}
                     >
-                      <div class="plugin-catalog-grid" data-claws-category={section().category[0]}>
-                        <For each={section().entries} keyed={(entry) => entry.packageName}>
-                          {(entry) => <ClawCard entry={entry()} onSelect={props.onSelect} />}
-                        </For>
-                      </div>
-                    </CatalogDiscoverySection>
-                  )}
-                </For>
-              </Show>
-              <Show when={!overview() && view.entries.length > 0}>
-                <CatalogDiscoverySection
-                  id={view.category || "results"}
-                  title={
-                    view.category
-                      ? t(
-                          clawCategories.find(([slug]) => slug === view.category)?.[1] ??
-                            "clawsCatalog.categoryOther",
-                        )
-                      : t("clawsCatalog.results")
-                  }
-                >
-                  <div class="plugin-catalog-grid" data-claws-results>
-                    <For each={view.entries} keyed={(entry) => entry.packageName}>
-                      {(entry) => <ClawCard entry={entry()} onSelect={props.onSelect} />}
-                    </For>
-                  </div>
-                </CatalogDiscoverySection>
+                      <Loading
+                        fallback={
+                          <div
+                            class="plugin-catalog-grid"
+                            role="status"
+                            aria-label={t("clawsCatalog.loading")}
+                          >
+                            <Repeat count={4}>
+                              {() => <div class="agents-home__claw-skeleton" aria-hidden="true" />}
+                            </Repeat>
+                          </div>
+                        }
+                      >
+                        <Show
+                          when={
+                            gateway.connected &&
+                            !unavailable() &&
+                            result().entries.length === 0 &&
+                            result().featured.length === 0 &&
+                            result().sections.length === 0
+                          }
+                        >
+                          <p class="agents-home__claw-empty">{t("clawsCatalog.empty")}</p>
+                        </Show>
+                        <Show when={overview && result().featured.length > 0}>
+                          <CatalogDiscoverySection id="featured" title={t("clawsCatalog.featured")}>
+                            <div class="plugin-catalog-grid" data-claws-featured>
+                              <For each={result().featured} keyed={(entry) => entry.packageName}>
+                                {(entry) => <ClawCard entry={entry()} onSelect={props.onSelect} />}
+                              </For>
+                            </div>
+                          </CatalogDiscoverySection>
+                        </Show>
+                        <Show when={overview}>
+                          <For each={result().sections} keyed={(section) => section.category[0]}>
+                            {(section) => (
+                              <CatalogDiscoverySection
+                                id={section().category[0]}
+                                title={t(section().category[1])}
+                                onViewAll={() => selectCategory(section().category[0])}
+                                viewAllLabel={t("clawsCatalog.viewAll")}
+                              >
+                                <div
+                                  class="plugin-catalog-grid"
+                                  data-claws-category={section().category[0]}
+                                >
+                                  <For
+                                    each={section().entries}
+                                    keyed={(entry) => entry.packageName}
+                                  >
+                                    {(entry) => (
+                                      <ClawCard entry={entry()} onSelect={props.onSelect} />
+                                    )}
+                                  </For>
+                                </div>
+                              </CatalogDiscoverySection>
+                            )}
+                          </For>
+                        </Show>
+                        <Show when={!overview && result().entries.length > 0}>
+                          <CatalogDiscoverySection
+                            id={current.category || "results"}
+                            title={
+                              current.category
+                                ? t(
+                                    clawCategories.find(
+                                      ([slug]) => slug === current.category,
+                                    )?.[1] ?? "clawsCatalog.categoryOther",
+                                  )
+                                : t("clawsCatalog.results")
+                            }
+                          >
+                            <div class="plugin-catalog-grid" data-claws-results>
+                              <For each={result().entries} keyed={(entry) => entry.packageName}>
+                                {(entry) => <ClawCard entry={entry()} onSelect={props.onSelect} />}
+                              </For>
+                            </div>
+                          </CatalogDiscoverySection>
+                        </Show>
+                      </Loading>
+                    </Errored>
+                  );
+                }}
               </Show>
             </div>
           </section>
