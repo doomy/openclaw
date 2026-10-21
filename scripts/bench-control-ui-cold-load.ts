@@ -1,6 +1,8 @@
 // Opt-in production-bundle benchmark; real delays model wire delivery, not test synchronization.
 // --cpu-profile: source-mapped reload/live/streaming tables and per-run/median cpu-profile.json.
 // --cpu-profile-compare <baseline cpu-profile.json>: profile and diff against that report.
+// --allocations --untraced --live-events: collected-object renderer bytes per event.
+// --streaming-allocations: sampled allocation bytes including collected objects during deltas.
 // Sampling inflates timings: never compare profiled runs with unprofiled runs.
 // --session-event-duration-ms 135000 --session-event-ancestor-refs extends the native churn.
 // Pair built bundles with --fixture-now-ms and --live-start-at-ms (one run per process).
@@ -54,6 +56,10 @@ import {
 } from "./lib/control-ui-dashboard-probe.ts";
 import { probeColdLoadOverlays } from "./lib/control-ui-overlay-probe.ts";
 import { warmReloadProbe } from "./lib/control-ui-warm-reload-probe.ts";
+import {
+  GATEWAY_HEAP_SAMPLE_INTERVAL,
+  readGatewayHeapProfile,
+} from "./lib/gateway-bench-profile.ts";
 
 function readRigProbeSnapshot() {
   const perf = Reflect.get(window, "__perf");
@@ -201,6 +207,7 @@ const { values } = parseArgs({
   options: {
     "cpu-profile": { type: "boolean", default: false },
     "cpu-profile-compare": { type: "string" },
+    allocations: { type: "boolean", default: false },
     "warm-reload": { type: "boolean", default: false },
     "large-snapshot": { type: "boolean", default: false },
     "dashboard-widget": { type: "boolean", default: false },
@@ -215,6 +222,7 @@ const { values } = parseArgs({
     "probe-dir": { type: "string" },
     "live-events": { type: "boolean", default: false },
     "streaming-reply": { type: "boolean", default: false },
+    "streaming-allocations": { type: "boolean", default: false },
     "streaming-burst-size": { type: "string", default: "1" },
     "session-switch": { type: "boolean", default: false },
     "init-script": { type: "string", multiple: true, default: [] },
@@ -249,6 +257,9 @@ const { values } = parseArgs({
 if (values["streaming-reply"] && values["live-events"]) {
   throw new Error("streaming-reply measures an isolated answer; do not combine with live-events");
 }
+if (values["streaming-allocations"] && !values["streaming-reply"]) {
+  throw new Error("streaming-allocations requires streaming-reply");
+}
 if (values["warm-reload"] && !values["probe-dir"]) {
   throw new Error("warm-reload requires probe-dir with LoAF/mutation and RPC census init scripts");
 }
@@ -276,7 +287,16 @@ if (sidebarView !== "sessions" && sidebarView !== "online") {
   throw new Error("Expected sidebar-view sessions or online");
 }
 const cpuProfile = values["cpu-profile"] || Boolean(values["cpu-profile-compare"]);
+const allocations = values.allocations;
 const traced = !values.untraced && !values["filmstrip-only"];
+if (
+  allocations &&
+  (!values["live-events"] || !values.untraced || cpuProfile || values["filmstrip-only"])
+) {
+  throw new Error(
+    "allocations requires untraced live-events without CPU profiling or filmstrip capture",
+  );
+}
 const captureTrace = traced || values["filmstrip-only"];
 const colorScheme = values["color-scheme"];
 if (colorScheme !== undefined && colorScheme !== "light" && colorScheme !== "dark") {
@@ -402,8 +422,11 @@ if (
 if (sidebarRowTransfer === "interleaved" && (runs < 14 || runs % 2 !== 0)) {
   throw new Error("Interleaved sidebar transfer requires an even run count of at least 14");
 }
-if (liveStartAtMs !== undefined && (runs !== 1 || !values["live-events"])) {
-  throw new Error("live-start-at-ms requires one live-events run");
+if (
+  liveStartAtMs !== undefined &&
+  (runs !== 1 || (!values["live-events"] && !values["streaming-reply"]))
+) {
+  throw new Error("live-start-at-ms requires one live-events or streaming-reply run");
 }
 const artifactDir = path.resolve(values.output, new Date().toISOString().replaceAll(":", "-"));
 await mkdir(artifactDir, { recursive: true });
@@ -642,7 +665,7 @@ try {
     ? `\n(${installRotatingBoardTickets.toString()})(${JSON.stringify(fixture.board)}, window.openclawControlUiE2eGateway);`
     : "";
   await page.addInitScript({
-    content: `;(() => { if (window !== window.top) return; const __name = (fn) => fn; (${installWidgetReadiness.toString()})(); ${createControlUiMockGatewayInitScript(prepared.scenario)}\n${rigProbeScript}\nwindow.__teamScaleSidebarLists = { apply: (mutation) => window.__teamScaleMutate(mutation) }; window.openclawControlUiE2eGateway.setRequestHandler("sessions.list", async ({ params, respond }) => respond(await window.__teamScaleList(params))); window.openclawControlUiE2eGateway.setRequestHandler("cron.list", async ({ params, respond }) => respond(await window.__teamScaleCronList(params)));\n${boardTickets}\n${createColdLoadProbeInitScript({ latencyMs, methodLatencyMs, connectNotBeforeMs, frameGapMs, events: fixture.events, liveEvents: fixture.liveEvents, liveHistory: fixture.liveHistory, ownerProbes: !cpuProfile && !values["session-event-churn"] })}\n${streamingReply ? createStreamingReplyProbeInitScript() : ""}\n${extraInitScripts.join("\n")}\n${warmProbes} })();`,
+    content: `;(() => { if (window !== window.top) return; const __name = (fn) => fn; (${installWidgetReadiness.toString()})(); ${createControlUiMockGatewayInitScript(prepared.scenario)}\n${rigProbeScript}\nwindow.__teamScaleSidebarLists = { apply: (mutation) => window.__teamScaleMutate(mutation) }; window.openclawControlUiE2eGateway.setRequestHandler("sessions.list", async ({ params, respond }) => respond(await window.__teamScaleList(params))); window.openclawControlUiE2eGateway.setRequestHandler("cron.list", async ({ params, respond }) => respond(await window.__teamScaleCronList(params)));\n${boardTickets}\n${createColdLoadProbeInitScript({ latencyMs, methodLatencyMs, connectNotBeforeMs, frameGapMs, events: fixture.events, liveEvents: fixture.liveEvents, liveHistory: fixture.liveHistory, ownerProbes: !cpuProfile && !allocations && !values["session-event-churn"], sidebarCounters: !cpuProfile })}\n${streamingReply ? createStreamingReplyProbeInitScript() : ""}\n${extraInitScripts.join("\n")}\n${warmProbes} })();`,
   });
   const url = values["full-uuid-route"]
     ? new URL(
@@ -753,12 +776,11 @@ try {
   await settle();
   if (values["chat-dashboard-route"] || (face === "dashboard" && values["dashboard-widget"])) {
     // Save the operator's dashboard-first layout through its normal action.
-    await page.locator("button.chat-pane__layout-trigger:not([inert] *)").first().click();
-    const menu = page.locator(".chat-pane__layout-menu");
-    await menu
-      .getByRole("menuitem", { name: /^Swap / })
-      .or(menu.getByRole("menuitemcheckbox", { name: /^Swap / }))
-      .click();
+    const menu = page
+      .locator(".chat-pane-cache__pane--active .chat-dashboard-menu")
+      .filter({ visible: true });
+    await menu.getByRole("button", { name: "Dashboard options", exact: true }).click();
+    await menu.getByRole("menuitem", { name: /^Swap / }).click();
     await page.waitForFunction(
       () =>
         document
@@ -1058,6 +1080,15 @@ try {
               assetBaseUrl: new URL("assets/", server.baseUrl).href,
               assetDirectory: path.join(bundleDir, "assets"),
             });
+    if (liveStartAtMs !== undefined) {
+      const remainingMs = liveStartAtMs - Date.now();
+      if (remainingMs < 0) {
+        throw new Error("Missed paired live-start barrier");
+      }
+      await new Promise((resolve) => {
+        setTimeout(resolve, remainingMs);
+      });
+    }
     let streaming;
     if (streamingReply) {
       const composer = page.locator(".agent-chat__composer-combobox textarea").last();
@@ -1072,6 +1103,13 @@ try {
       }> = [];
       if (cpuProfile) {
         await cdp.send("Profiler.start");
+      }
+      if (values["streaming-allocations"]) {
+        await cdp.send("HeapProfiler.startSampling", {
+          samplingInterval: 4096,
+          includeObjectsCollectedByMajorGC: true,
+          includeObjectsCollectedByMinorGC: true,
+        });
       }
       await page.evaluate((input) => Reflect.get(window, "__streamingReply").start(input), {
         ...streamingReply,
@@ -1126,13 +1164,36 @@ try {
         streamingInput.abort();
         await nativeInput;
       }
+      let streamingAllocations;
+      const allocationProfile = values["streaming-allocations"]
+        ? (await cdp.send("HeapProfiler.stopSampling")).profile
+        : undefined;
+      if (allocationProfile) {
+        const bytes = allocationProfile.samples.reduce((sum, sample) => sum + sample.size, 0);
+        streamingAllocations = {
+          measurement:
+            "CDP sampled allocation estimate, including major/minor-GC collected objects; whole renderer during streaming and native input, excluding reload and report serialization. Profiling adds overhead; compare timings in separate unprofiled runs.",
+          samplingInterval: 4096,
+          samples: allocationProfile.samples.length,
+          delivered: previousDelivered,
+          bytes,
+          bytesPerDelta: bytes / previousDelivered,
+        };
+      }
       if (cpuProfile) {
         await recordCpu("streaming", (await cdp.send("Profiler.stop")).profile);
       }
       streaming = {
         ...(await page.evaluate(() => Reflect.get(window, "__streamingReply").finish())),
         cpu,
+        allocations: streamingAllocations,
       };
+      if (allocationProfile) {
+        await writeFile(
+          path.join(artifactDir, `run-${run + 1}.streaming.heapprofile`),
+          JSON.stringify(allocationProfile),
+        );
+      }
       if (!streaming.finalHtml) {
         throw new Error("Streaming reply produced no visible Markdown");
       }
@@ -1199,15 +1260,6 @@ try {
         ],
       );
     if (values["live-events"]) {
-      if (liveStartAtMs !== undefined) {
-        const remainingMs = liveStartAtMs - Date.now();
-        if (remainingMs < 0) {
-          throw new Error("Missed paired live-start barrier");
-        }
-        await new Promise((resolve) => {
-          setTimeout(resolve, Math.max(0, remainingMs));
-        });
-      }
       const before = await readLivePresentation();
       await cdp.send("Performance.enable");
       const cpuBefore = (await cdp.send("Performance.getMetrics")).metrics;
@@ -1224,6 +1276,13 @@ try {
         });
       }
       const listOffset = sidebarLists?.stats().length ?? 0;
+      if (allocations) {
+        await cdp.send("HeapProfiler.startSampling", {
+          samplingInterval: GATEWAY_HEAP_SAMPLE_INTERVAL,
+          includeObjectsCollectedByMajorGC: true,
+          includeObjectsCollectedByMinorGC: true,
+        });
+      }
       await page.evaluate((captureProbes) => {
         if (captureProbes) {
           const read = Reflect.get(window, "__readColdLoadRigProbes");
@@ -1265,6 +1324,13 @@ try {
       }
       await page.evaluate(() => Reflect.get(window, "__coldLoad").finishLive());
       const cpuAfter = (await cdp.send("Performance.getMetrics")).metrics;
+      let allocationProfile;
+      if (allocations) {
+        const { profile: heapProfile } = await cdp.send("HeapProfiler.stopSampling");
+        const profilePath = path.join(artifactDir, `run-${run + 1}.live.heapprofile`);
+        await writeFile(profilePath, JSON.stringify(heapProfile));
+        allocationProfile = readGatewayHeapProfile(profilePath);
+      }
       if (traced || cpuProfile) {
         const liveProfile = await cdp.send("Profiler.stop");
         if (cpuProfile) {
@@ -1331,6 +1397,16 @@ try {
       const responseTasks = summarizeResponseTasks(liveTrace);
       live = {
         ...liveMetrics,
+        allocation: allocationProfile
+          ? {
+              ...allocationProfile,
+              eventCount: liveMetrics.sentEvents,
+              sampledAllocatedBytesPerEvent:
+                allocationProfile.sampledAllocatedBytes / liveMetrics.sentEvents,
+              measurement:
+                "Renderer main-isolate allocation sampling including collected objects and lightweight sidebar counters; excludes other isolates and native allocations",
+            }
+          : undefined,
         ancestorBaseline,
         milliseconds: Object.fromEntries(
           ["TaskDuration", "ScriptDuration", "LayoutDuration", "RecalcStyleDuration"].map(
@@ -1541,6 +1617,7 @@ try {
         fixture: fixture.counts,
         sidebarView,
         streamingReply: values["streaming-reply"],
+        streamingAllocations: values["streaming-allocations"],
         sessionSwitch: values["session-switch"],
         sidebarListChurn: values["sidebar-list-churn"],
         sidebarLiveChurn: fixture.sidebarLiveChurn,
