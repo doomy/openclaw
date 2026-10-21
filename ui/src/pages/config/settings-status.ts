@@ -1,4 +1,5 @@
-import { createMemo, createSignal, onCleanup, onSettled } from "solid-js";
+import { createDeferred } from "@solidjs/signals";
+import { createMemo, createSignal, isPending, onCleanup, onSettled } from "solid-js";
 import type { ApplicationContext } from "../../app/context-types.ts";
 import type { hasOperatorReadAccess } from "../../app/operator-access.ts";
 import { projectGateway } from "../../lib/reactive/application.ts";
@@ -28,13 +29,40 @@ export function createSettingsStatus<T>(
       ? snapshot.client
       : null;
   };
-  const stateConnection = createMemo(client);
-  // A connection change retires the local request state; refreshes keep their result.
-  const [state, setState] = createSignal<"idle" | "pending" | "complete" | "error">(() =>
-    stateConnection() ? "pending" : "idle",
+  type Result = { status: T; isCurrent: () => boolean };
+  type Outcome = { result: Result } | { error: unknown };
+  type Read = { scope: object; promise?: Promise<Outcome | undefined> };
+  let scope = {};
+  // Immutable issued-read identities; payloads stay on their admitted promise.
+  const [issued, setIssued] = createSignal<Read>({ scope });
+  const scopeKey = createMemo(() => issued().scope);
+  const reads = createMemo(() => {
+    const currentScope = scopeKey();
+    const value = createMemo<Outcome | undefined>((previous) => {
+      const current = issued();
+      // Retiring a request keeps the accepted answer until this scope receives another.
+      return current.scope === currentScope
+        ? (current.promise?.then((outcome) => outcome ?? previous) ?? previous)
+        : undefined;
+    });
+    return { value, available: createDeferred(value, { loadingValue: undefined }) };
+  });
+  const pending = createMemo(
+    () =>
+      Boolean(client()) &&
+      (isPending(() => reads().available()) || reads().available() === undefined),
   );
-  const [error, setError] = createSignal<unknown>();
-  const [result, setResult] = createSignal<{ status: T; isCurrent: () => boolean }>();
+  const result = createMemo(() => {
+    const outcome = reads().available();
+    return outcome && "result" in outcome ? outcome.result : undefined;
+  });
+  const read = () => {
+    const outcome = reads().value();
+    if (outcome && "error" in outcome) {
+      throw outcome.error;
+    }
+    return outcome?.result;
+  };
   let lastRequestKey: ReturnType<typeof requestKey> | undefined;
   const scheduleRefresh = () => onSettled(refreshIfChanged);
   const connectionKey = () => {
@@ -55,8 +83,8 @@ export function createSettingsStatus<T>(
         // A same-turn reconnect must replace the retired read even if the final key is equal.
         lastRequestKey = undefined;
         if (identityChanged) {
-          setResult(undefined);
-          setError(undefined);
+          scope = {};
+          setIssued({ scope });
         }
         options.onConnectionChange?.(identityChanged);
         scheduleRefresh();
@@ -101,7 +129,6 @@ export function createSettingsStatus<T>(
     lastRequestKey = key;
     request?.abort();
     if (!currentClient) {
-      setState("idle");
       return;
     }
     const controller = new AbortController();
@@ -110,24 +137,25 @@ export function createSettingsStatus<T>(
     const isConnectionCurrent = () => ownsConnection() && configHash() === hash;
     const isCurrent = () =>
       !controller.signal.aborted && request === controller && isConnectionCurrent();
-    setState("pending");
-    void currentClient.request<T>(options.method, {}, { signal: controller.signal }).then(
-      (status) => {
-        if (isCurrent()) {
-          setResult({ status, isCurrent: isConnectionCurrent });
-          setState("complete");
-          options.onStatus?.(status);
-        }
-      },
-      (failure: unknown) => {
-        if (isCurrent()) {
-          setResult(undefined);
-          setError(failure);
-          setState("error");
-          options.onError?.();
-        }
-      },
-    );
+    const promise = currentClient
+      .request<T>(options.method, {}, { signal: controller.signal })
+      .then(
+        (status) => {
+          if (isCurrent()) {
+            options.onStatus?.(status);
+            return { result: { status, isCurrent: isConnectionCurrent } };
+          }
+          return undefined;
+        },
+        (failure: unknown) => {
+          if (isCurrent()) {
+            options.onError?.();
+            return { error: failure };
+          }
+          return undefined;
+        },
+      );
+    setIssued({ scope, promise });
   }
   // Config receipts admit a new status read after the current write has settled.
   onCleanup(configProjection.subscribe(scheduleRefresh));
@@ -136,5 +164,16 @@ export function createSettingsStatus<T>(
     disposed = true;
     request?.abort();
   });
-  return { client, state, error, result, refresh, capture, gatewayProjection, configProjection };
+  return {
+    client,
+    pending,
+    result,
+    read,
+    scopeKey,
+    requestKey: issued,
+    refresh,
+    capture,
+    gatewayProjection,
+    configProjection,
+  };
 }

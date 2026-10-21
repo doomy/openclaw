@@ -921,6 +921,32 @@ describe("curated meeting capture", () => {
     expect(runtimeConfig.state.configFormDirty).toBe(true);
   });
 
+  it("keeps the draft and Refresh control through a rejected health read and retry", async () => {
+    const { page, request, respond } = await mount();
+    click(page, "Edit source 1");
+    input(page, "title", "Unsaved meeting title");
+    const title = page.querySelector<HTMLInputElement>('input[name="title"]')!;
+    const failure = createDeferred<TranscriptsStatusResult>();
+    request.mockImplementationOnce(() => failure.promise);
+    const refresh = [...page.querySelectorAll<HTMLButtonElement>("button")].find(
+      (item) => item.textContent?.trim() === "Refresh",
+    )!;
+    title.focus();
+    click(page, "Refresh");
+    failure.reject(new Error("Health read unavailable"));
+    await waitForSolid(() => expect(page.textContent).toContain("Health read unavailable"));
+    expect(title.value).toBe("Unsaved meeting title");
+    expect(refresh.isConnected).toBe(true);
+    expect(document.activeElement).toBe(title);
+
+    request.mockImplementation(respond);
+    expect(click(page, "Refresh")).toBe(refresh);
+    await waitForSolid(() => expect(page.textContent).toContain("Not active"));
+    expect(page.textContent).not.toContain("Health read unavailable");
+    expect(page.querySelector('input[name="title"]')).toBe(title);
+    expect(title.value).toBe("Unsaved meeting title");
+  });
+
   it("does not overwrite an authoritative raw config draft with an old source array", async () => {
     const { page, runtimeConfig } = await mount();
     click(page, "Edit source 1");
