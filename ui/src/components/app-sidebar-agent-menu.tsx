@@ -42,7 +42,6 @@ type SidebarAgentMenuParams = Omit<
 
 export function renderSidebarAgentMenu(params: SidebarAgentMenuParams): JSX.Element {
   const controls = createMenuControls();
-  const position = params.position;
   const creationReasonId = createUniqueId();
   const hasMultipleAgents = () =>
     params.agents.length +
@@ -100,7 +99,7 @@ export function renderSidebarAgentMenu(params: SidebarAgentMenuParams): JSX.Elem
       </span>
     ),
   };
-  const items = (): MenuEntry[] => [
+  const items = createMemo<MenuEntry[]>(() => [
     ...(params.agents.length > 0
       ? [
           {
@@ -129,13 +128,13 @@ export function renderSidebarAgentMenu(params: SidebarAgentMenuParams): JSX.Elem
         controls,
       ),
     },
-  ];
+  ]);
 
   return (
     <SidebarDropdown
       controls={controls}
       class="sidebar-customize-menu sidebar-agent-menu"
-      position={position}
+      position={params.position}
       anchor={params.anchor}
       tabFocusTarget={params.tabFocusTarget}
       label={menuLabel()}
