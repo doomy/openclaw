@@ -1,7 +1,7 @@
 // @vitest-environment node
 import "../../test/host.setup.ts";
 import { createDeferred } from "openclaw/plugin-sdk/concurrency-runtime";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { getWorkboardDependencyState } from "./card-state.ts";
 import { getWorkboardLifecycle } from "./lifecycle.ts";
 import { loadWorkboard, refreshWorkboard } from "./loading.ts";
@@ -14,19 +14,14 @@ import {
 } from "./test/index-helpers.ts";
 
 describe("Workboard native owners", () => {
-  it("loads canonical cards without querying a task ledger", async () => {
-    const host = {};
-    const card = createWorkboardCard();
-    const client = createWorkboardTestClient({
-      "workboard.cards.list": { cards: [card], boards: [] },
-    });
-    expect(await loadWorkboard({ host, client })).toBe(true);
-    expect(getWorkboardState(host).cards).toEqual([card]);
-    expect(client.request.mock.calls.map(([method]) => method)).toEqual(["workboard.cards.list"]);
+  let host: object;
+  let state: ReturnType<typeof getWorkboardState>;
+  beforeEach(() => {
+    host = {};
+    state = getWorkboardState(host);
   });
 
   it("loads another bounded page on demand and refreshes the held window", async () => {
-    const host = {};
     const first = createWorkboardCard();
     const second = createWorkboardCard({ id: "card-2", position: 2000 });
     const cursor = { id: first.id, position: first.position, createdAt: first.createdAt };
@@ -38,10 +33,10 @@ describe("Workboard native owners", () => {
         ? { cards: [second], boards: [] }
         : { cards: [{ ...first, title: firstTitle }], boards: [], nextCursor: cursor };
     });
-    await loadWorkboard({ host, client });
-    const state = getWorkboardState(host);
-    expect(state.cards).toHaveLength(1);
+    expect(await loadWorkboard({ host, client })).toBe(true);
+    expect(state.cards).toEqual([first]);
     expect(state.nextCursor).toEqual(cursor);
+    expect(client.request.mock.calls.map(([method]) => method)).toEqual(["workboard.cards.list"]);
     await loadWorkboard({ host, client, more: true });
     expect(state.cards.map((card) => card.id)).toEqual([first.id, second.id]);
     expect(state.nextCursor).toBeNull();
@@ -54,14 +49,7 @@ describe("Workboard native owners", () => {
   it("does not mark a dependency outside the loaded page missing or block its card", () => {
     const card = createWorkboardCard({
       metadata: {
-        links: [
-          {
-            id: "parent-link",
-            type: "parent",
-            targetCardId: "not-loaded",
-            createdAt: 1,
-          },
-        ],
+        links: [{ id: "parent-link", type: "parent", targetCardId: "not-loaded", createdAt: 1 }],
       },
     });
     const partial = getWorkboardDependencyState(card, [card], false);
@@ -71,7 +59,6 @@ describe("Workboard native owners", () => {
   });
 
   it("refreshes server diagnostics before reading cards", async () => {
-    const host = {};
     const client = createWorkboardTestClient({ "workboard.cards.list": { cards: [], boards: [] } });
     expect(
       await refreshWorkboard({ host, client, source: "manual", refreshDiagnostics: true }),
@@ -83,8 +70,6 @@ describe("Workboard native owners", () => {
   });
 
   it("requires a canonical reload after disconnect before writes", () => {
-    const host = {};
-    const state = getWorkboardState(host);
     state.loaded = true;
     state.cards = [createWorkboardCard()];
     resetWorkboardConnectionState(host);
@@ -94,7 +79,6 @@ describe("Workboard native owners", () => {
   });
 
   it("reserves every reordered card until the ordered move settles", async () => {
-    const host = {};
     const moving = createWorkboardCard({ id: "moving", position: 2000 });
     const peer = createWorkboardCard({ id: "peer", position: 0 });
     const shifted = { ...peer, position: 1999, updatedAt: 2 };
@@ -103,7 +87,6 @@ describe("Workboard native owners", () => {
     const client = createWorkboardTestClient((method) =>
       method === "workboard.cards.update" ? pending.promise : { card: moved },
     );
-    const state = getWorkboardState(host);
     state.cards = [peer, moving];
     const move = moveWorkboardCard({
       host,

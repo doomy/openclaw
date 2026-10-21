@@ -6,21 +6,15 @@ import {
   type CardAlert,
 } from "./card-alerts.ts";
 import { getCardSessionState, type CardSessionState } from "./session-state.ts";
+import { createGatewaySession, createWorkboardCard } from "./test/index-helpers.ts";
 import type { WorkboardCard } from "./types.ts";
 
 function diagnosticCard(
   metadata: WorkboardCard["metadata"],
   severity: "critical" | "warning" = "warning",
 ): WorkboardCard {
-  return {
-    id: "review",
-    title: "Release review",
+  return createWorkboardCard({
     status: "blocked",
-    priority: "normal",
-    labels: [],
-    position: 0,
-    createdAt: 0,
-    updatedAt: 100,
     metadata: {
       ...metadata,
       diagnostics: [
@@ -36,23 +30,12 @@ function diagnosticCard(
         },
       ],
     },
-  };
+  });
 }
 
-describe("card session state", () => {
-  it("uses the native session terminal outcome", () => {
-    expect(
-      getCardSessionState({
-        state: "failed",
-        session: {
-          key: "agent:main:review",
-          kind: "direct",
-          updatedAt: 100,
-          status: "timeout",
-        },
-      }),
-    ).toBe("timed_out");
-  });
+it("uses the native session terminal outcome", () => {
+  const session = createGatewaySession({ status: "timeout", updatedAt: 100 });
+  expect(getCardSessionState({ state: "failed", session })).toBe("timed_out");
 });
 
 describe("visible card alerts", () => {
@@ -73,9 +56,7 @@ describe("visible card alerts", () => {
   it("preserves a real failure reason even when its text equals the state label", () => {
     const alerts = getCardAlerts(
       diagnosticCard(
-        {
-          workerProtocol: { state: "violated", detail: "failed", updatedAt: 100 },
-        },
+        { workerProtocol: { state: "violated", detail: "failed", updatedAt: 100 } },
         "critical",
       ),
       { state: "failed", session: null },
@@ -92,10 +73,7 @@ describe("visible card alerts", () => {
       diagnosticCard({
         stale: { detectedAt: 5_700_000, lastSessionUpdatedAt: 0, reason: "No recent activity" },
       }),
-      {
-        state: "stale",
-        session: { key: "agent:main:review", kind: "direct", updatedAt: 0 },
-      },
+      { state: "stale", session: createGatewaySession({ updatedAt: 0 }) },
       { parents: [], blockedParents: [] },
       5_760_000,
     );
