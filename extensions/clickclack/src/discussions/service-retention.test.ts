@@ -31,20 +31,15 @@ describe("ClickClack discussion binding retention", () => {
       label: "Independent info rename",
     });
     await infoHarness.service.reconcile(infoKey);
-    expect(infoHarness.updateChannel).toHaveBeenCalledOnce();
-    expect(infoHarness.updateChannel).toHaveBeenCalledWith(
-      "chn_discussion",
-      expect.objectContaining({ display_title: "Independent info rename" }),
-    );
+    expect(infoHarness.updateChannel.mock.calls).toEqual([
+      ["chn_discussion", expect.objectContaining({ display_title: "Independent info rename" })],
+    ]);
     expect(openHarness.updateChannel).not.toHaveBeenCalled();
   });
 
   it("retains only the newest 1,000 deleted-session bindings", async () => {
     const harness = createHarness(undefined);
-    const seededKeys = Array.from(
-      { length: 999 },
-      (_, index) => `agent:main:retained-detached-${index}`,
-    );
+    const seededKeys = Array.from({ length: 999 }, (_, i) => `agent:main:retained-detached-${i}`);
     // Seed persisted rows before the binding owner hydrates its detached index.
     for (const [index, sessionKey] of seededKeys.entries()) {
       harness.store.register(
@@ -66,11 +61,10 @@ describe("ClickClack discussion binding retention", () => {
     const firstKey = "agent:main:detached-a";
     const secondKey = "agent:main:detached-b";
     const entries = new Map<string, { sessionId: string; label: string; updatedAt: number }>();
-    vi.mocked(harness.runtime.agent.session.getSessionEntry).mockImplementation(({ sessionKey }) =>
-      entries.get(sessionKey),
-    );
+    const getEntry = ({ sessionKey }: { sessionKey: string }) => entries.get(sessionKey);
+    vi.mocked(harness.runtime.agent.session.getSessionEntry).mockImplementation(getEntry);
     vi.mocked(harness.runtime.agent.session.getSessionEntryAsync).mockImplementation(
-      async ({ sessionKey }) => entries.get(sessionKey),
+      async (params) => getEntry(params),
     );
 
     entries.set(firstKey, { sessionId: "session-a", label: "Detached A", updatedAt: 1 });
@@ -94,24 +88,17 @@ describe("ClickClack discussion binding retention", () => {
     await harness.service.reconcile(secondKey);
 
     expect(harness.store.lookup(seededKeys[0]!)).toBeUndefined();
-    expect(harness.store.lookup(firstKey)).toMatchObject({
-      channelId: "chn_discussion",
-      detachedAt: expect.any(Number),
-    });
-    expect(
-      harness.store
-        .entries()
-        .map(({ key }) => key)
-        .toSorted(),
-    ).toEqual([...seededKeys.slice(1), firstKey, secondKey].toSorted());
-    expect(harness.store.lookup(secondKey)).toMatchObject({
-      channelId: "chn_discussion_b",
-      detachedAt: expect.any(Number),
-    });
-    expect(harness.revokedStore.entries()).toHaveLength(1);
-    expect(harness.revokedStore.entries()[0]?.value).toMatchObject({
-      channelId: "chn_retained_0",
-    });
+    const retainedKeys = harness.store.entries().map(({ key }) => key);
+    expect(retainedKeys.toSorted()).toEqual(
+      [...seededKeys.slice(1), firstKey, secondKey].toSorted(),
+    );
+    expect([harness.store.lookup(firstKey), harness.store.lookup(secondKey)]).toMatchObject([
+      { channelId: "chn_discussion", detachedAt: expect.any(Number) },
+      { channelId: "chn_discussion_b", detachedAt: expect.any(Number) },
+    ]);
+    expect(harness.revokedStore.entries()).toEqual([
+      expect.objectContaining({ value: expect.objectContaining({ channelId: "chn_retained_0" }) }),
+    ]);
     expect(harness.createChannel).toHaveBeenCalledTimes(2);
   });
 });
