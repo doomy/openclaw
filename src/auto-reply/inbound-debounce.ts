@@ -184,11 +184,10 @@ export function createInboundDebouncer<T>(params: InboundDebounceCreateParams<T>
   const runFlush = async (items: T[]) => {
     let flush: InboundDebounceFlush;
     try {
+      // SAFETY: Released plugins return PromiseLike<void>; current callbacks return lifecycle objects.
       const result = params.onFlush(items, createInboundDebounceFlush) as
         | InboundDebounceFlush
         | PromiseLike<void>;
-      // v2026.7.2-beta.5 plugins return a Promise; retain their shipped callback
-      // contract while new plugins use separate admission and completion.
       if ("then" in result) {
         const completion = Promise.resolve(result);
         flush = { admission: completion, completion };
