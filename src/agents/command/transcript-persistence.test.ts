@@ -13,23 +13,20 @@ const sessionDirs = useSessionStoreTempDirs(afterAll, "openclaw-coordination-fal
 async function createSession(body = "Write the report", subagent = false) {
   const cwd = sessionDirs.make();
   const sessionId = "test-session";
-  const target = {
+  const sessionEntry = { sessionId, updatedAt: Date.now() };
+  const common = {
     agentId: "main",
     sessionId,
     sessionKey: `agent:main:${subagent ? "subagent:" : ""}${sessionId}`,
     storePath: path.join(cwd, "openclaw-agent.sqlite"),
-  };
-  const sessionEntry = { sessionId, updatedAt: Date.now() };
-  await upsertSessionEntryCore(target, sessionEntry);
-  return {
-    ...target,
     body,
     sessionEntry,
-    sessionStore: { [target.sessionKey]: sessionEntry },
     sessionAgentId: "main",
     sessionCwd: cwd,
     config: {},
   };
+  await upsertSessionEntryCore(common, sessionEntry);
+  return { ...common, sessionStore: { [common.sessionKey]: sessionEntry } };
 }
 
 function assistantMessage(text: string) {
@@ -60,30 +57,26 @@ it.each([
   { runtime: "ACP", sourceTool: "sessions_send" },
   { runtime: "CLI", sourceTool: "subagent_settle", privateCompletion: true as const },
   { runtime: "ACP", sourceTool: "subagent_settle", privateCompletion: true as const },
-])(
-  "keeps the $runtime $sourceTool fallback hidden after runtime persistence is unavailable",
-  async ({ runtime, sourceTool, privateCompletion }) => {
-    const common = {
-      ...(await createSession("Review the worker result")),
-      privateCompletion,
-      inputProvenance: {
-        kind: "inter_session" as const,
-        sourceTool,
-        sourceRole: "subagent" as const,
-      },
-    };
-    await persist(runtime, common, "Report received", true);
-    const messages = SessionManager.open(common).buildSessionContext().messages;
-    expect(messages).toHaveLength(runtime === "CLI" ? 1 : 2);
-    expect(messages.at(-1)).toMatchObject(assistantMessage("Report received"));
-    expect(messages.every((message) => Reflect.get(message, "display") === false)).toBe(true);
-  },
-);
+])("hides $runtime $sourceTool fallback", async ({ runtime, sourceTool, privateCompletion }) => {
+  const common = {
+    ...(await createSession("Review the worker result")),
+    privateCompletion,
+    inputProvenance: {
+      kind: "inter_session" as const,
+      sourceTool,
+      sourceRole: "subagent" as const,
+    },
+  };
+  await persist(runtime, common, "Report received", true);
+  const messages = SessionManager.open(common).buildSessionContext().messages;
+  expect(messages).toHaveLength(runtime === "CLI" ? 1 : 2);
+  expect(messages.at(-1)).toMatchObject(assistantMessage("Report received"));
+  expect(messages.every((message) => Reflect.get(message, "display") === false)).toBe(true);
+});
 
 it("persists the terminal CLI turn usage while keeping last-call context", async () => {
   const common = await createSession("run tools");
   const lastCallUsage = { input: 2, output: 1, cacheRead: 27_376, total: 27_379 };
-
   await persistCliTurnTranscript({
     ...common,
     result: {
@@ -114,24 +107,18 @@ it("persists the terminal CLI turn usage while keeping last-call context", async
   });
 });
 
-it.each(["CLI", "ACP"] as const)(
-  "recovers the complete %s answer for its run after a later turn",
-  async (runtime) => {
-    const runId = `run-${runtime.toLowerCase()}-final`;
-    const common = await createSession(undefined, true);
-    const finalText = `${"line of the child report\n".repeat(400)}END-MARKER`;
-    for (const turn of [
-      { runId, finalText },
-      { runId: `${runId}-later`, finalText: "A different turn's answer" },
-    ]) {
-      await persist(runtime, { ...common, runId: turn.runId }, turn.finalText);
-    }
-    const found = await findTranscriptEvent(common, { kind: "visible-final", runId });
-    expect(found?.event).toMatchObject({
-      message: {
-        ...assistantMessage(finalText),
-        __openclaw: { runId },
-      },
-    });
-  },
-);
+it.each(["CLI", "ACP"] as const)("recovers full %s answer after a later turn", async (runtime) => {
+  const runId = `run-${runtime.toLowerCase()}-final`;
+  const common = await createSession(undefined, true);
+  const finalText = `${"line of the child report\n".repeat(400)}END-MARKER`;
+  for (const turn of [
+    { runId, finalText },
+    { runId: `${runId}-later`, finalText: "A different turn's answer" },
+  ]) {
+    await persist(runtime, { ...common, runId: turn.runId }, turn.finalText);
+  }
+  const found = await findTranscriptEvent(common, { kind: "visible-final", runId });
+  expect(found?.event).toMatchObject({
+    message: { ...assistantMessage(finalText), __openclaw: { runId } },
+  });
+});
