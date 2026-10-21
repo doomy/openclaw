@@ -64,10 +64,7 @@ export function expectResolvedMediaFields(
   label: string,
   fields: Record<string, unknown>,
 ) {
-  const record: Record<string, unknown> = requireResolvedMedia(result, label);
-  for (const [key, value] of Object.entries(fields)) {
-    expect(record[key]).toEqual(value);
-  }
+  expect(requireResolvedMedia(result, label)).toMatchObject(fields);
 }
 
 export async function expectMediaFetchError(
@@ -78,12 +75,12 @@ export async function expectMediaFetchError(
     await promise;
   } catch (error) {
     const record = requireRecord(error, "MediaFetchError");
-    expect(record.name).toBe(fields.name ?? "MediaFetchError");
-    expect(record.code).toBe(fields.code);
+    expect(record).toMatchObject({
+      name: fields.name ?? "MediaFetchError",
+      code: fields.code,
+      ...(fields.status !== undefined ? { status: fields.status } : {}),
+    });
     expect(String(record.message)).toContain(fields.messageIncludes);
-    if (fields.status !== undefined) {
-      expect(record.status).toBe(fields.status);
-    }
     return;
   }
   throw new Error("expected MediaFetchError rejection");
