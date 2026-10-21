@@ -1,18 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferredCore } from "../../../shared/deferred.js";
-import { ensureClientVoiceAgentSessionEntry } from "../../../talk/client-voice-session-write.js";
-import { clientVoiceSessionTesting } from "../../../talk/client-voice-session.test-support.js";
 import type {
   RealtimeVoiceAgentConsultRunner,
   RealtimeVoiceBridgeCreateRequest,
 } from "../../../talk/provider-types.js";
-import { createOpenClawTestState } from "../../../test-utils/openclaw-test-state.js";
 import { controlBridge, controlContext } from "../client-gateway-control.test-support.js";
-import { prepareTalkSessionTarget } from "../session-target.js";
+import { useRelayFixtures } from "./fixture.test-support.js";
 import { createIdleRelayProvider } from "./index.test-support.js";
-import { closeRelaySession } from "./operations.js";
-import { createTalkRealtimeRelaySession } from "./session-create.js";
-import { relaySessions, type RelaySession } from "./state.js";
+import type { RelaySession } from "./state.js";
 
 const mocks = vi.hoisted(() => ({ run: vi.fn(), steer: vi.fn() }));
 // mock-isolation: isolate relay lifecycle from deterministic consult execution.
@@ -29,49 +24,29 @@ vi.mock("../client-agent-consult.js", () => ({
 }));
 
 describe("native relay transcript readiness", () => {
-  let state: Awaited<ReturnType<typeof createOpenClawTestState>>;
-  let ownedRelay: RelaySession | undefined;
+  const createRelay = useRelayFixtures();
   let request: RealtimeVoiceBridgeCreateRequest;
   let runConsult: RealtimeVoiceAgentConsultRunner;
   let queue: RelaySession["voiceTranscriptQueue"];
 
   beforeEach(async () => {
-    state = await createOpenClawTestState({ label: "relay-confirmation", applyEnv: true });
-    await ensureClientVoiceAgentSessionEntry({ agentId: "main", sessionKey: "agent:main:main" });
     mocks.run.mockReset().mockResolvedValue({ text: "Read result." });
     mocks.steer.mockReset().mockResolvedValue({ text: "Read result." });
-    const cfg = { agents: { entries: { main: { workspace: state.workspaceDir } } } };
     const createBridge = vi.fn((_request: RealtimeVoiceBridgeCreateRequest) => controlBridge());
-    const session = createTalkRealtimeRelaySession({
-      cfg,
+    const { relay } = await createRelay({
       context: controlContext(),
       connId: "relay-confirmation-client",
-      sessionTarget: await prepareTalkSessionTarget(cfg, "agent:main:main"),
       controlSource: "delegation",
       provider: createIdleRelayProvider(createBridge),
-      providerConfig: {},
-      instructions: "Answer briefly.",
-      tools: [],
     });
-    const relay = relaySessions.get(session.relaySessionId);
     const captured = createBridge.mock.calls[0]?.[0];
     const run = captured?.runAgentConsult;
     if (!relay || !captured || !run) {
       throw new Error("expected a registered native relay");
     }
-    ownedRelay = relay;
     request = captured;
     runConsult = run;
     queue = relay.voiceTranscriptQueue;
-  });
-
-  afterEach(async () => {
-    if (ownedRelay) {
-      await closeRelaySession(ownedRelay, "completed");
-      ownedRelay = undefined;
-    }
-    clientVoiceSessionTesting.reset();
-    await state.cleanup();
   });
 
   it("delegates without waiting for a future spoken confirmation", async () => {

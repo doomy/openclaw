@@ -1,33 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { resolveRealtimeVoiceProviderCapabilitiesAsync } from "../../../talk/provider-resolver.js";
 import type { RealtimeVoiceBridgeCreateRequest } from "../../../talk/provider-types.js";
-import {
-  createOpenClawTestState,
-  type OpenClawTestState,
-} from "../../../test-utils/openclaw-test-state.js";
-import { prepareTalkSessionTarget } from "../session-target.js";
+import { useRelayFixtures } from "./fixture.test-support.js";
 import { createIdleRelayProvider, makeRelayTransport } from "./index.test-support.js";
-import { closeRelaySession } from "./operations.js";
-import { createTalkRealtimeRelaySession } from "./session-create.js";
-import { relaySessions, type RelaySession } from "./state.js";
 
 const cfg = { agents: { entries: { main: {} } } };
 
 describe("Talk relay barge-in under forced agent consults", () => {
-  let state: OpenClawTestState;
-  let relay: RelaySession | undefined;
-
-  beforeEach(async () => {
-    state = await createOpenClawTestState({ label: "relay-barge-in", applyEnv: true });
-  });
-
-  afterEach(async () => {
-    if (relay) {
-      await closeRelaySession(relay, "completed");
-      relay = undefined;
-    }
-    await state.cleanup();
-  });
+  const createRelay = useRelayFixtures();
 
   // Regression for #139278: forced consults suppress automatic audio turns, but
   // must not disable interruption. Both flags were derived from the same boolean.
@@ -51,20 +31,15 @@ describe("Talk relay barge-in under forced agent consults", () => {
         cfg,
         surface: "gateway-relay",
       });
-      const session = createTalkRealtimeRelaySession({
+      await createRelay({
         context: { broadcastToConnIds: vi.fn() } as never,
-        connId: "conn-1",
         cfg,
         provider,
         providerConfig,
         controlSource: capabilities?.handlesAgentConsult === true ? "delegation" : "transcript",
         capabilities,
-        instructions: "be brief",
-        tools: [],
-        sessionTarget: await prepareTalkSessionTarget(cfg, "agent:main:main"),
         forceAgentConsultOnFinalTranscript: forced,
       });
-      relay = relaySessions.get(session.relaySessionId);
       expect(createBridge.mock.calls[0][0]).toMatchObject({
         autoRespondToAudio: !forced,
         interruptResponseOnInputAudio: expectedInterrupt,
