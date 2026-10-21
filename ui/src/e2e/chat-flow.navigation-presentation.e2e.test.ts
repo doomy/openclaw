@@ -322,7 +322,8 @@ suite.define(() => {
       );
     }
 
-    await panes.first().click({ position: { x: 20, y: 80 } });
+    // A session hovercard can cover the pane's upper-left transcript area.
+    await panes.first().locator(".agent-chat__composer-combobox textarea").click();
     await expect.poll(() => cells.first().getAttribute("class")).toContain("--active");
     await expect.poll(visibleActionLabels).toEqual([activeActions, ["Details"]]);
     expect(await headers.first().locator(".chat-header-session-menu__trigger").isVisible()).toBe(
@@ -345,7 +346,7 @@ suite.define(() => {
     ]);
 
     const lastPane = page.locator(".chat-split-view__pane").last();
-    await lastPane.click({ position: { x: 20, y: 80 } });
+    await lastPane.locator(".agent-chat__composer-combobox textarea").click();
     await expect.poll(() => cells.last().getAttribute("class")).toContain("--active");
     await expect.poll(visibleActionLabels).toEqual([["Details"], activeActions]);
     expect(await headers.last().locator(".chat-header-session-menu__trigger").isVisible()).toBe(
