@@ -1,5 +1,5 @@
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
-import { createMemo, createSignal, For, onSettled, Show } from "solid-js";
+import { createMemo, createSignal, createStore, For, onSettled, Show, snapshot } from "solid-js";
 import type {
   McpAppMentionResult,
   McpAppResourceLink,
@@ -62,18 +62,25 @@ export function McpAppResources(props: McpAppResourcesProps) {
     error: string | null;
   };
   // A new scope retires results while preserving the user's disclosure and query.
-  const [view, setView] = createSignal<ResourceView>((previous) => {
-    requestScope();
-    return {
-      expanded: previous?.expanded ?? false,
-      query: previous?.query ?? "",
-      generation,
+  const [view, setView] = createStore<ResourceView>(
+    (draft) => {
+      requestScope();
+      draft.generation = generation;
+      draft.resources = [];
+      draft.busy = false;
+      draft.searched = false;
+      draft.error = null;
+    },
+    {
+      expanded: false,
+      query: "",
+      generation: 0,
       resources: [],
       busy: false,
       searched: false,
       error: null,
-    };
-  });
+    },
+  );
   const servers = createMemo(() => catalog().servers.filter((server) => server.mentionTool));
   const [serverName, setServerName] = createSignal<string>((previous = "") => {
     const available = servers();
@@ -98,44 +105,45 @@ export function McpAppResources(props: McpAppResourcesProps) {
       generation === searchGeneration &&
       context.gateway.snapshot.client === client &&
       requestScope() === searchScope;
-    setView((previous) => ({
-      ...previous,
-      generation: searchGeneration,
-      busy: true,
-      error: null,
-      resources: [],
-    }));
+    setView((draft) => {
+      draft.generation = searchGeneration;
+      draft.busy = true;
+      draft.error = null;
+      draft.resources = [];
+    });
     try {
       const { resources } = await client.request<McpAppMentionResult>("mcp.app.mention", {
         sessionKey,
         agentId,
         serverName: selectedServer,
-        query: queryInput?.value ?? view().query,
+        query: queryInput?.value ?? view.query,
       });
       if (current()) {
-        setView((previous) => ({ ...previous, resources, searched: true, busy: false }));
+        setView((draft) => {
+          draft.resources = resources;
+          draft.searched = true;
+          draft.busy = false;
+        });
       }
     } catch (error) {
       if (current()) {
-        setView((previous) => ({
-          ...previous,
-          busy: false,
-          error:
+        setView((draft) => {
+          draft.busy = false;
+          draft.error =
             asOptionalRecord(asOptionalRecord(error)?.details)?.code ===
             "MCP_APP_UNSUPPORTED_MENTION_RESULT"
               ? t("mcpApp.errors.unsupportedResources")
-              : formatUiError(error),
-        }));
+              : formatUiError(error);
+        });
       }
     }
   }
   function attach(resource: McpAppResourceLink) {
-    const current = view();
     // Input changes retire retained result buttons before the next DOM commit.
     if (
       context.gateway.snapshot.phase !== "connected" ||
-      current.generation !== generation ||
-      !current.resources.includes(resource)
+      view.generation !== generation ||
+      !view.resources.includes(resource)
     ) {
       return;
     }
@@ -148,15 +156,17 @@ export function McpAppResources(props: McpAppResourcesProps) {
           sessionKey: props.sessionKey,
           agentId: props.agentId,
           serverName: serverName(),
-          resource,
+          resource: snapshot(resource),
         },
       }),
     );
-    setView((previous) =>
-      claimed
-        ? { ...previous, expanded: false }
-        : { ...previous, error: t("mcpApp.errors.mountUnavailable") },
-    );
+    setView((draft) => {
+      if (claimed) {
+        draft.expanded = false;
+      } else {
+        draft.error = t("mcpApp.errors.mountUnavailable");
+      }
+    });
   }
   return (
     <openclaw-mcp-app-resources ref={(element) => (host = element)}>
@@ -165,14 +175,16 @@ export function McpAppResources(props: McpAppResourcesProps) {
           <button
             type="button"
             class="btn btn--sm"
-            aria-expanded={view().expanded ? "true" : "false"}
+            aria-expanded={view.expanded ? "true" : "false"}
             onClick={() => {
-              setView((previous) => ({ ...previous, expanded: !previous.expanded }));
+              setView((draft) => {
+                draft.expanded = !draft.expanded;
+              });
             }}
           >
             <Icon name="link" /> {t("mcpApp.resources")}
           </button>
-          <Show when={view().expanded}>
+          <Show when={view.expanded}>
             <p class="muted">{t("mcpApp.resourceDescription")}</p>
             <form
               class="mcp-app-resources__search"
@@ -185,11 +197,14 @@ export function McpAppResources(props: McpAppResourcesProps) {
                 ref={(element) => (serverSelect = element)}
                 aria-label={t("mcpApp.title")}
                 value={serverName()}
-                disabled={view().busy}
+                disabled={view.busy}
                 onChange={(event) => {
                   setServerName(event.currentTarget.value);
                   generation++;
-                  setView((previous) => ({ ...previous, resources: [], searched: false }));
+                  setView((draft) => {
+                    draft.resources = [];
+                    draft.searched = false;
+                  });
                 }}
               >
                 <For each={servers()} keyed={(server) => server.serverName}>
@@ -201,30 +216,29 @@ export function McpAppResources(props: McpAppResourcesProps) {
                 type="search"
                 aria-label={t("mcpApp.resourceSearch")}
                 placeholder={t("mcpApp.resourceQuery")}
-                value={view().query}
+                value={view.query}
                 onInput={(event) => {
                   const query = event.currentTarget.value;
                   generation++;
-                  setView((previous) => ({
-                    ...previous,
-                    query,
-                    busy: false,
-                    resources: [],
-                    searched: false,
-                  }));
+                  setView((draft) => {
+                    draft.query = query;
+                    draft.busy = false;
+                    draft.resources = [];
+                    draft.searched = false;
+                  });
                 }}
               />
-              <button class="btn" type="submit" disabled={view().busy || !catalog().available}>
+              <button class="btn" type="submit" disabled={view.busy || !catalog().available}>
                 {t("mcpApp.resourceSearch")}
               </button>
             </form>
             <div class="mcp-app-resources__results">
-              <For each={view().resources}>
+              <For each={view.resources}>
                 {(resource) => (
                   <button
                     type="button"
                     class="btn mcp-app-resources__result"
-                    disabled={view().busy || !catalog().available}
+                    disabled={view.busy || !catalog().available}
                     onClick={() => attach(resource)}
                   >
                     <span>{resource.title || resource.name}</span>
@@ -233,12 +247,12 @@ export function McpAppResources(props: McpAppResourcesProps) {
                 )}
               </For>
             </div>
-            <Show when={view().searched && !view().resources.length}>
+            <Show when={view.searched && !view.resources.length}>
               <p role="status">{t("mcpApp.noResources")}</p>
             </Show>
           </Show>
-          <Show when={view().error}>
-            <p role="alert">{view().error}</p>
+          <Show when={view.error}>
+            <p role="alert">{view.error}</p>
           </Show>
         </section>
       </Show>

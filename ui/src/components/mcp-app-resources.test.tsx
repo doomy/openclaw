@@ -116,6 +116,7 @@ it("only closes the resource picker when a consumer claims the selected resource
     serverName: "parts",
     resource,
   });
+  expect(structuredClone(detail)).toEqual(detail);
   expect(container.querySelector("form")).toBeNull();
 });
 
