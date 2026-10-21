@@ -21,6 +21,14 @@ export function createContext(
   env?: NodeJS.ProcessEnv,
   inheritStoreEnv = true,
 ): PluginDoctorStateMigrationContext {
+  const openQueue = <TPayload, TMetadata = unknown, TCompletedMetadata = unknown>({
+    accountId,
+  }: { accountId?: string } = {}) =>
+    createChannelIngressQueueForTests<TPayload, TMetadata, TCompletedMetadata>({
+      channelId: "matrix",
+      accountId,
+      stateDir: env?.OPENCLAW_STATE_DIR,
+    });
   return {
     readPluginStateEntriesInKeyRange(namespace, range) {
       return createPluginStateSyncKeyedStoreForTests<unknown>("matrix", {
@@ -47,22 +55,8 @@ export function createContext(
       {
         channelId: "matrix",
         listChannelIngressQueueAccountIds: async () => [],
-        openChannelIngressQueueForInspection: <TPayload, TMetadata>({
-          accountId,
-        }: { accountId?: string } = {}) =>
-          createChannelIngressQueueForTests<TPayload, TMetadata>({
-            channelId: "matrix",
-            accountId,
-            stateDir: env?.OPENCLAW_STATE_DIR,
-          }),
-        openChannelIngressQueue: <TPayload, TMetadata, TCompletedMetadata>({
-          accountId,
-        }: { accountId?: string } = {}) =>
-          createChannelIngressQueueForTests<TPayload, TMetadata, TCompletedMetadata>({
-            channelId: "matrix",
-            accountId,
-            stateDir: env?.OPENCLAW_STATE_DIR,
-          }),
+        openChannelIngressQueueForInspection: openQueue,
+        openChannelIngressQueue: openQueue,
       },
     ],
     getPluginStateCapacity: () => getPluginStateCapacityForTests("matrix", env),
