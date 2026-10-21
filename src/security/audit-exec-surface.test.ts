@@ -176,7 +176,7 @@ describe("security audit exec surface findings", () => {
           dm: { policy: "open" },
           accounts: { work: { groups: { room: { groupPolicy: "open" } } } },
         },
-        discord: { dmPolicy: "disabled", dm: { policy: "open" } },
+        "top-policy-fixture": { dmPolicy: "disabled", dm: { policy: "open" } },
       },
       tools: { exec: { mode: "full" } },
     });
@@ -195,7 +195,7 @@ describe("security audit exec surface findings", () => {
       for (const policyPath of openPaths) {
         expect(finding?.detail, checkId).toContain(policyPath);
       }
-      expect(finding?.detail, checkId).not.toContain("channels.discord.dm.policy");
+      expect(finding?.detail, checkId).not.toContain("channels.top-policy-fixture.dm.policy");
     }
     expect(findings.find((entry) => entry.checkId === "summary.attack_surface")?.detail).toContain(
       "groups: open=1, allowlist=0\ndirect messages: open=1",

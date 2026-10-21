@@ -88,7 +88,8 @@ vi.mock("../plugins/config-state.js", async (importOriginal) => ({
   }),
 }));
 
-vi.mock("../plugins/plugin-registry.js", () => ({
+vi.mock("../plugins/plugin-registry.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../plugins/plugin-registry.js")>()),
   createPluginRegistryIdNormalizer: () => (id: string) => id,
   loadPluginRegistrySnapshot: () => ({
     diagnostics: [],
