@@ -1,14 +1,11 @@
 // Real scheduler, controller turns and SQLite; only model/channel I/O is injected.
 import path from "node:path";
-import * as retry from "@openclaw/retry";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { createHeartbeatToolResponsePayload } from "../auto-reply/heartbeat-tool-response.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { getLastHeartbeatEvent, resetHeartbeatEventsForTest } from "../infra/heartbeat-events.js";
-import * as heartbeatExecution from "../infra/heartbeat-runner-execution.js";
-import * as heartbeatPrompt from "../infra/heartbeat-runner-prompt.js";
 import {
   bindHeartbeatReply,
   bindHeartbeatSend,
@@ -35,6 +32,7 @@ import {
 import { resetAllLanes } from "../process/command-queue.js";
 import { resetGatewayWorkAdmission } from "../process/gateway-work-admission.js";
 import { withSessionTurn } from "../sessions/session-controller.admission.js";
+import { getCurrentSessionControllerOwner } from "../sessions/session-controller.context.js";
 import { closeOpenClawAgentDatabasesAsync } from "../state/openclaw-agent-db.js";
 import {
   closeOpenClawStateDatabaseAsync,
@@ -63,7 +61,6 @@ const EVERY_MS = 15 * 60_000;
 const noopLogger = { debug() {}, info() {}, warn() {}, error() {} };
 
 let closeFixture: (() => Promise<void>) | undefined;
-let diagnoseFixture: (() => void) | undefined;
 
 async function addHeartbeatJob(cron: CronService, kind: "monitor" | "task") {
   const monitor = kind === "monitor";
@@ -286,8 +283,6 @@ async function createPollFixture(options: { scratch?: string; isolated?: boolean
 
 describe("native heartbeat busy poll settlement", () => {
   afterEach(async () => {
-    diagnoseFixture?.();
-    diagnoseFixture = undefined;
     const close = closeFixture;
     closeFixture = undefined;
     await close?.();
@@ -507,76 +502,37 @@ describe("native heartbeat busy poll settlement", () => {
 
   it("still times out executing work and never overwrites the parent error on late completion", async () => {
     const f = await createPollFixture();
-    let stage = "coalesce";
-    const observations: Array<{ operation: string; result: string; stack?: string }> = [];
-    const observe = <T>(operation: string, promise: Promise<T>, stack?: string): Promise<T> => {
-      const observation = { operation, result: "pending", stack };
-      observations.push(observation);
-      void promise.then(
-        () => {
-          observation.result = "settled";
-        },
-        (error: unknown) => {
-          observation.result = String(error);
-        },
-      );
-      return promise;
-    };
-    const resolveWake = heartbeatExecution.resolveHeartbeatWakeStage;
-    vi.spyOn(heartbeatExecution, "resolveHeartbeatWakeStage").mockImplementation((...args) =>
-      observe("wake", resolveWake(...args)),
-    );
-    const prepareRun = heartbeatExecution.prepareHeartbeatRunStage;
-    vi.spyOn(heartbeatExecution, "prepareHeartbeatRunStage").mockImplementation((...args) =>
-      observe("prepare", prepareRun(...args)),
-    );
-    const preflight = heartbeatPrompt.resolveHeartbeatPreflight;
-    vi.spyOn(heartbeatPrompt, "resolveHeartbeatPreflight").mockImplementation((...args) =>
-      observe("preflight", preflight(...args)),
-    );
-    const sleep = retry.sleepWithAbort;
-    vi.spyOn(retry, "sleepWithAbort").mockImplementation((...args) =>
-      observe(`sleep ${args[0]}ms`, sleep(...args), new Error().stack),
-    );
-    // Report before teardown advances the fake clock or settles outstanding work.
-    diagnoseFixture = () => {
-      if (stage !== "complete") {
-        console.error("heartbeat busy-poll failure context", {
-          stage,
-          pid: process.pid,
-          now: Date.now(),
-          timers: vi.getTimerCount(),
-          requests: f.request.mock.calls.length,
-          replies: f.reply.mock.calls.length,
-          runs: f.runOnce.mock.calls.length,
-          finished: f.finished(),
-          observations,
-        });
-      }
-    };
 
     const releaseReply = createDeferred();
     const replyStarted = createDeferred();
     f.reply.mockImplementationOnce(async () => {
-      replyStarted.resolve();
-      await releaseReply.promise;
-      return createHeartbeatToolResponsePayload({
-        outcome: "progress",
-        notify: false,
-        summary: "Late completion",
+      const operation = getCurrentSessionControllerOwner();
+      expect(operation).toBeDefined();
+      // The fixture owns this wait; exercise the cron deadline without an unrelated semantic stall.
+      const wait = operation?.watchdog.beginWait({
+        kind: "runtime_owned",
+        isCurrent: () => !operation.abortSignal.aborted,
       });
+      replyStarted.resolve();
+      try {
+        await releaseReply.promise;
+        return createHeartbeatToolResponsePayload({
+          outcome: "progress",
+          notify: false,
+          summary: "Late completion",
+        });
+      } finally {
+        wait?.close();
+      }
     });
     const parent = f.cron.run(f.monitor.id, "force");
     try {
       await f.coalesce();
-      stage = "reply entry";
       await replyStarted.promise;
       expect(f.reply).toHaveBeenCalledOnce();
       const waiterSignal = f.request.mock.calls[0]?.[1].abortSignal;
       expect(waiterSignal?.aborted).toBe(false);
-      stage = "watchdog clock";
       await vi.advanceTimersByTimeAsync(600_000);
-      stage = "parent settlement";
       await expect(parent).resolves.toMatchObject({ ok: true, ran: true });
       expect(waiterSignal?.aborted).toBe(true);
       expect(f.finished()).toHaveLength(1);
@@ -586,13 +542,10 @@ describe("native heartbeat busy poll settlement", () => {
       });
       const failedState = structuredClone(f.cron.getJob(f.monitor.id)?.state);
       releaseReply.resolve();
-      stage = "late reply settlement";
       await f.runOnce.mock.results[0]?.value;
-      stage = "late completion clock";
       await vi.advanceTimersByTimeAsync(1_000);
       expect(f.finished()).toHaveLength(1);
       expect(f.cron.getJob(f.monitor.id)?.state).toEqual(failedState);
-      stage = "complete";
     } finally {
       releaseReply.resolve();
     }
