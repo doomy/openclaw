@@ -14,14 +14,10 @@ import { deleteSessionEntry, upsertSessionEntry } from "openclaw/plugin-sdk/sess
 import { appendSessionTranscriptMessagesByIdentity } from "openclaw/plugin-sdk/session-transcript-runtime";
 import { observeHostDataSql } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
-import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { projectCodexSettledHistoryInWorker } from "./session-history-worker-runtime.js";
+import { afterAll, expect, it, onTestFinished, vi } from "vitest";
+import { projectCodexSettledHistoryInWorker as projectHistory } from "./session-history-worker-runtime.js";
 import { settledFixture } from "./src/app-server/session-history.test-support.js";
 
-afterEach(() => {
-  clearRuntimeConfigSnapshot();
-  vi.restoreAllMocks();
-});
 const tempDirs = useAutoCleanupTempDirTracker(afterAll);
 
 function actorHistoryFixture() {
@@ -36,10 +32,6 @@ function actorHistoryFixture() {
     { role: "user", content: "Earlier synthetic context.", timestamp: 1 },
     ...settledMessages,
   ];
-  const snapshot: CodexSessionContextSnapshot = {
-    header: { type: "session", id: sessionTarget.sessionId },
-    messages,
-  };
   const owner = {
     assertCurrent(target: Parameters<CodexSessionContextReader>[0]) {
       if (
@@ -48,119 +40,107 @@ function actorHistoryFixture() {
         throw new Error("History capability belongs to another actor target");
       }
     },
-    read: vi.fn(async () => snapshot),
+    read: vi.fn(async () => ({
+      header: { type: "session", id: sessionTarget.sessionId },
+      messages,
+    })),
     validate: vi.fn(async (_snapshot: CodexSessionContextSnapshot) => {}),
     retain: <T>(operation: () => Promise<T>) => operation(),
+  };
+  const history = {
+    agentId: sessionTarget.agentId,
+    sessionId: sessionTarget.sessionId,
+    sessionFile: `sqlite:main:${sessionTarget.sessionId}:${sessionTarget.storePath}`,
+    mirroredMessages: settledMessages,
+    settledMessages,
+    turnId: "settled",
   };
   return {
     owner,
     reader: createCodexSessionContextReader(owner),
     messages,
     upstreamPrompt,
-    target: {
-      ...sessionTarget,
-      sessionTarget,
-      sessionFile: `sqlite:main:${sessionTarget.sessionId}:${sessionTarget.storePath}`,
-      mirroredMessages: settledMessages,
-      settledMessages,
-      turnId: "settled",
-    },
+    history,
+    target: { ...history, ...sessionTarget, sessionTarget },
   };
 }
 
-describe("Codex actor history adapter", () => {
-  it("passes the requested target to the bound capability before acquiring history", async () => {
-    const { target, reader, owner } = actorHistoryFixture();
-    const foreignTarget = {
-      ...target,
-      agentId: "other",
-      sessionTarget: { ...target.sessionTarget, agentId: "other" },
-    };
+it("passes the requested target to the bound capability before acquiring history", async () => {
+  const { target, reader, owner } = actorHistoryFixture();
+  const foreignTarget = {
+    ...target,
+    agentId: "other",
+    sessionTarget: { ...target.sessionTarget, agentId: "other" },
+  };
 
-    await expect(
-      projectCodexSettledHistoryInWorker(foreignTarget, undefined, reader),
-    ).rejects.toThrow("History capability belongs to another actor target");
-    expect(owner.read).not.toHaveBeenCalled();
+  await expect(projectHistory(foreignTarget, undefined, reader)).rejects.toThrow(
+    "History capability belongs to another actor target",
+  );
+  expect(owner.read).not.toHaveBeenCalled();
+});
+
+it("reports invalidated actor snapshots through the plugin rejection contract", async () => {
+  const { target, reader, owner } = actorHistoryFixture();
+  owner.validate.mockRejectedValueOnce(new SessionTranscriptReadFenceError("Snapshot changed"));
+  await expect(projectHistory(target, undefined, reader)).resolves.toEqual({
+    status: "rejected",
+    reason: "snapshot_invalidated",
   });
+});
 
-  it("reports invalidated actor snapshots through the plugin rejection contract", async () => {
-    const { target, reader, owner } = actorHistoryFixture();
-    owner.validate.mockRejectedValueOnce(new SessionTranscriptReadFenceError("Snapshot changed"));
+it("refuses cancellation during the final actor snapshot validation", async () => {
+  const { target, reader, owner } = actorHistoryFixture();
+  const controller = new AbortController();
+  const cancelled = new Error("History caller cancelled during validation");
+  owner.validate.mockImplementationOnce(async () => controller.abort(cancelled));
+  await expect(projectHistory(target, controller.signal, reader)).rejects.toBe(cancelled);
+});
 
-    await expect(projectCodexSettledHistoryInWorker(target, undefined, reader)).resolves.toEqual({
-      status: "rejected",
-      reason: "snapshot_invalidated",
-    });
+it("preserves owner-ended errors for caller recovery", async () => {
+  const { target, reader, owner } = actorHistoryFixture();
+  const ended = Object.assign(new Error("Actor ended"), { code: "INCOGNITO_SESSION_ENDED" });
+  owner.read.mockRejectedValueOnce(ended);
+  await expect(projectHistory(target, undefined, reader)).rejects.toBe(ended);
+});
+
+it("resolves marker-only history through unbound memory routing without host SQL", async () => {
+  setRuntimeConfigSnapshot({});
+  onTestFinished(clearRuntimeConfigSnapshot);
+  const env = { OPENCLAW_STATE_DIR: tempDirs.make("codex-marker-actor-") };
+  const { target, history, upstreamPrompt, messages } = actorHistoryFixture();
+  const sessionTarget = {
+    ...target.sessionTarget,
+    env,
+    storePath: path.join(
+      env.OPENCLAW_STATE_DIR,
+      "agents/main/agent/incognito-openclaw-agent.sqlite",
+    ),
+  };
+  onTestFinished(async () => {
+    await deleteSessionEntry(sessionTarget);
   });
-
-  it("refuses cancellation during the final actor snapshot validation", async () => {
-    const { target, reader, owner } = actorHistoryFixture();
-    const controller = new AbortController();
-    const cancelled = new Error("History caller cancelled during validation");
-    owner.validate.mockImplementationOnce(async () => controller.abort(cancelled));
-
-    await expect(
-      projectCodexSettledHistoryInWorker(target, controller.signal, reader),
-    ).rejects.toBe(cancelled);
+  await upsertSessionEntry({
+    ...sessionTarget,
+    entry: { sessionId: target.sessionId, updatedAt: 1, incognito: true },
   });
-
-  it("preserves owner-ended errors for caller recovery", async () => {
-    const { target, reader, owner } = actorHistoryFixture();
-    const ended = Object.assign(new Error("Actor ended"), { code: "INCOGNITO_SESSION_ENDED" });
-    owner.read.mockRejectedValueOnce(ended);
-
-    await expect(projectCodexSettledHistoryInWorker(target, undefined, reader)).rejects.toBe(ended);
+  await appendSessionTranscriptMessagesByIdentity({
+    ...sessionTarget,
+    messages: messages.map((message) => ({ message })),
   });
-
-  it("resolves marker-only history through unbound memory routing without host SQL", async () => {
-    setRuntimeConfigSnapshot({});
-    const env = { OPENCLAW_STATE_DIR: tempDirs.make("codex-marker-actor-") };
-    const { target, upstreamPrompt, messages } = actorHistoryFixture();
-    const sessionTarget = {
-      ...target.sessionTarget,
-      env,
-      storePath: path.join(
-        env.OPENCLAW_STATE_DIR,
-        "agents",
-        "main",
-        "agent",
-        "incognito-openclaw-agent.sqlite",
-      ),
-    };
-    try {
-      await upsertSessionEntry({
-        ...sessionTarget,
-        entry: { sessionId: target.sessionId, updatedAt: 1, incognito: true },
-      });
-      await appendSessionTranscriptMessagesByIdentity({
-        ...sessionTarget,
-        messages: messages.map((message) => ({ message })),
-      });
-      const sql = observeHostDataSql();
-      try {
-        const result = await projectCodexSettledHistoryInWorker({
-          agentId: "main",
-          sessionId: target.sessionId,
-          sessionFile: `sqlite:main:${target.sessionId}:${sessionTarget.storePath}`,
-          mirroredMessages: target.mirroredMessages,
-          settledMessages: target.settledMessages,
-          turnId: target.turnId,
-        });
-        expect(result).toMatchObject({
-          status: "ok",
-          value: [
-            { role: "user", content: [{ text: "Earlier synthetic context." }] },
-            { role: "user", content: [{ text: upstreamPrompt }] },
-            { type: "function_call", call_id: "sent" },
-            { type: "function_call_output", call_id: "sent" },
-          ],
-        });
-        expect(sql.queries).toEqual([]);
-      } finally {
-        sql.restore();
-      }
-    } finally {
-      await deleteSessionEntry(sessionTarget);
-    }
+  const sql = observeHostDataSql();
+  onTestFinished(() => sql.restore());
+  const result = await projectHistory({
+    ...history,
+    sessionFile: `sqlite:main:${target.sessionId}:${sessionTarget.storePath}`,
   });
+  expect(result).toMatchObject({
+    status: "ok",
+    value: [
+      { role: "user", content: [{ text: "Earlier synthetic context." }] },
+      { role: "user", content: [{ text: upstreamPrompt }] },
+      { type: "function_call", call_id: "sent" },
+      { type: "function_call_output", call_id: "sent" },
+    ],
+  });
+  expect(sql.queries).toEqual([]);
 });
