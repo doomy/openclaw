@@ -1,4 +1,3 @@
-import * as gatewayRuntime from "openclaw/plugin-sdk/gateway-runtime";
 import { resetPluginStateStoreForTests } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { closeOpenClawStateDatabaseAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
@@ -6,35 +5,21 @@ import { withOpenClawTestState } from "openclaw/plugin-sdk/test-state";
 import { afterEach, expect, it, vi } from "vitest";
 import plugin from "./index.js";
 import { MEET_URL } from "./src/test-support/fixtures.test-helpers.js";
+import { setupParticipationHarness } from "./src/test-support/participation-harness.js";
 import {
-  createGoogleMeetToolGatewayForTest,
   getMeetTool,
   invokeGoogleMeetGatewayMethodForTest,
-  setupGoogleMeetPlugin,
 } from "./src/test-support/plugin-harness.js";
 import * as chromeTransport from "./src/transports/chrome.js";
 
 const requireRecord = createRequireRecord("record", "expected-label-object-capitalized");
 
-// Only the browser transport is simulated. Registration, both meeting runtimes,
-// current-session ownership, and the plugin's SQLite store run unchanged.
-function setupWithSqlite(env: NodeJS.ProcessEnv) {
-  const harness = setupGoogleMeetPlugin(
+const setupWithSqlite = (stateEnv: NodeJS.ProcessEnv) =>
+  setupParticipationHarness(
     plugin,
     { defaultTransport: "chrome", defaultMode: "transcribe" },
-    { stateEnv: env, fullConfig: { transcripts: { enabled: false } } },
+    { stateEnv, fullConfig: { transcripts: { enabled: false } } },
   );
-  vi.spyOn(gatewayRuntime, "callGatewayFromCli").mockImplementation(
-    createGoogleMeetToolGatewayForTest(harness.methods),
-  );
-  const tool = harness.tools[0];
-  if (!tool) {
-    throw new Error("Expected Google Meet tool registration");
-  }
-  const execute = async (params: Record<string, unknown>) =>
-    (await tool.execute("participation-call", params)).details;
-  return { ...harness, execute };
-}
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -56,12 +41,10 @@ it("persists unsupported results and replays them without restoring ended sessio
         lines: [],
       });
       const harness = setupWithSqlite(state.env);
+      const tool = getMeetTool(harness);
       let sessionId: string | undefined;
       try {
-        const joined = await getMeetTool(harness).execute("join-call", {
-          action: "join",
-          url: MEET_URL,
-        });
+        const joined = await tool.execute("join-call", { action: "join", url: MEET_URL });
         sessionId = joined.details.session.id;
         expect(joined.details.session.state).toBe("active");
         expect(launch).toHaveBeenCalledOnce();
@@ -83,15 +66,9 @@ it("persists unsupported results and replays them without restoring ended sessio
           participationAction: { type: "reaction", reaction: "👍" },
         };
         const firstResult = requireRecord(await harness.execute(request), "participation result");
-        expect(firstResult).toMatchObject({
-          requestId: request.requestId,
-          status: "unsupported",
-        });
+        expect(firstResult).toMatchObject({ requestId: request.requestId, status: "unsupported" });
 
-        const left = await getMeetTool(harness).execute("leave-call", {
-          action: "leave",
-          sessionId,
-        });
+        const left = await tool.execute("leave-call", { action: "leave", sessionId });
         expect(left.details).toMatchObject({ found: true, browserLeft: true });
         expect(leave).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({
@@ -111,8 +88,7 @@ it("persists unsupported results and replays them without restoring ended sessio
         await expectEnded(harness, "request-after-leave");
         expect(harness.runCommandWithTimeout).not.toHaveBeenCalled();
 
-        // Close and reopen SQLite as well as constructing fresh plugin/runtime
-        // owners: durable replay must not depend on the old runtime instance.
+        // Reopen SQLite and the runtime: replay must survive both owners.
         await closeOpenClawStateDatabaseAsync();
         resetPluginStateStoreForTests();
         const restarted = setupWithSqlite(state.env);
