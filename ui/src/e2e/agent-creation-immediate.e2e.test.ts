@@ -22,6 +22,20 @@ suite.define(() => {
     await suite.withPage(
       { locale: "en-US", serviceWorkers: "block", viewport: { width: 1440, height: 1000 } },
       async ({ page }) => {
+        await page.addInitScript(() => {
+          const decode = HTMLImageElement.prototype.decode;
+          HTMLImageElement.prototype.decode = function () {
+            const result = decode.call(this);
+            return this.src.startsWith("data:image/svg+xml")
+              ? result.then(
+                  () =>
+                    new Promise<void>((resolve) => {
+                      setTimeout(resolve, 500);
+                    }),
+                )
+              : result;
+          };
+        });
         await installMockGateway(page, {
           assistantName: "Harbor",
           methodResponses: { "config.get": { exists: true, valid: true, sourceConfig: {} } },
@@ -38,33 +52,20 @@ suite.define(() => {
         await expect.poll(() => presets.first().getAttribute("aria-pressed")).toBe("true");
         await page.waitForTimeout(250); // Let the opening animation finish before measuring selection.
 
-        const [frames] = await Promise.all([
-          page.evaluate(
-            () =>
-              new Promise<Array<{ top: number; height: number; status: boolean }>>((resolve) => {
-                const samples: Array<{ top: number; height: number; status: boolean }> = [];
-                const started = performance.now();
-                const sample = () => {
-                  const modal = document.querySelector(".agent-create-dialog")!;
-                  const bounds = modal.getBoundingClientRect();
-                  samples.push({
-                    top: Math.round(bounds.top),
-                    height: Math.round(bounds.height),
-                    status: modal.querySelector('.avatar-picker__status[role="status"]') !== null,
-                  });
-                  if (performance.now() - started < 500) {
-                    requestAnimationFrame(sample);
-                  } else {
-                    resolve(samples);
-                  }
-                };
-                requestAnimationFrame(sample);
-              }),
-          ),
-          presets.nth(1).click(),
-        ]);
+        const bounds = () =>
+          dialog.evaluate((modal) => {
+            const rect = modal.getBoundingClientRect();
+            return { top: Math.round(rect.top), height: Math.round(rect.height) };
+          });
+        const before = await bounds();
+        await presets.nth(1).click();
+        await dialog
+          .locator('.avatar-picker__status[role="status"]')
+          .waitFor({ state: "attached" });
+        const during = await bounds();
         await expect.poll(() => presets.nth(1).getAttribute("aria-pressed")).toBe("true");
-        expect(frames.some((frame) => frame.status)).toBe(true);
+        const after = await bounds();
+        const frames = [before, during, after];
         expect(
           Math.max(...frames.map((frame) => frame.height)) -
             Math.min(...frames.map((frame) => frame.height)),
