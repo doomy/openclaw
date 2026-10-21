@@ -84,32 +84,64 @@ function fixture() {
     return node;
   }
   function field(name: string, value: string) {
-    const input = container.querySelector<HTMLInputElement>(`#nostr-profile-${name}`)!;
-    input.value = value;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const node = input(name);
+    node.value = value;
+    node.dispatchEvent(new Event("input", { bubbles: true }));
     flush();
-    return input;
+    return node;
+  }
+  function input(name: string) {
+    return container.querySelector<HTMLInputElement>(`#nostr-profile-${name}`)!;
+  }
+  function click(label: string) {
+    button(label).click();
+    flush();
+  }
+  function pending(action: string) {
+    const result =
+      createDeferred<Awaited<ReturnType<ControlUiChannelSettingsContext["request"]>>>();
+    request.mockReturnValueOnce(result.promise);
+    click(action);
+    return result;
+  }
+  async function waitForText(text: string) {
+    await vi.waitFor(() => {
+      flush();
+      expect(container.textContent).toContain(text);
+    });
   }
   function update(patch: Partial<ControlUiChannelSettingsSnapshot>) {
     snapshot = { ...snapshot, ...patch };
     mounted.update(snapshot);
     flush();
   }
-  button("Edit Profile").click();
-  flush();
+  click("Edit Profile");
   field("name", "Alice Updated");
-  return { container, abort, request, refresh, formatError, button, field, update };
+  return {
+    container,
+    abort,
+    request,
+    refresh,
+    formatError,
+    button,
+    click,
+    input,
+    field,
+    update,
+    pending,
+    waitForText,
+  };
 }
 
 it("keeps the actual editor node while replacing its draft and calls the current save action", async () => {
   const f = fixture();
-  const input = f.container.querySelector<HTMLInputElement>("#nostr-profile-name")!;
+  const input = f.input("name");
   expect(input.value).toBe("Alice Updated");
   f.field("name", "after");
-  expect(f.container.querySelector("#nostr-profile-name")).toBe(input);
+  expect(f.input("name")).toBe(input);
   expect(input.value).toBe("after");
   expect(f.container.textContent).toContain("You have unsaved changes");
-  f.button("Save & Publish").click();
+  f.click("Save & Publish");
   await settle();
   expect(f.request).toHaveBeenCalledOnce();
   expect(f.request).toHaveBeenCalledWith(
@@ -134,38 +166,21 @@ it("preserves null imported names and extra profile metadata", async () => {
       merged: { name: null, displayName: "Imported display", extra: { value: true } },
     }),
   );
-  f.button("Import from Relays").click();
-  await vi.waitFor(() => {
-    flush();
-    expect(f.container.textContent).toContain("Profile imported from relays. Review and publish.");
-  });
-  expect(f.container.querySelector<HTMLInputElement>("#nostr-profile-name")!.value).toBe("");
-  expect(f.container.querySelector<HTMLInputElement>("#nostr-profile-displayName")!.value).toBe(
-    "Imported display",
-  );
-  expect(f.container.textContent).toContain("Profile imported from relays. Review and publish.");
+  f.click("Import from Relays");
+  await f.waitForText("Profile imported from relays. Review and publish.");
+  expect(f.input("name").value).toBe("");
+  expect(f.input("displayName").value).toBe("Imported display");
   expect(f.refresh).toHaveBeenCalledWith(true);
 });
 
 it("merges an import into the live draft and reveals imported advanced fields", async () => {
   const f = fixture();
-  const pending = createDeferred<Awaited<ReturnType<ControlUiChannelSettingsContext["request"]>>>();
-  f.request.mockReturnValue(pending.promise);
-  f.button("Import from Relays").click();
-  flush();
+  const pending = f.pending("Import from Relays");
   f.field("displayName", "Typed during import");
   pending.resolve(ok({ ok: true, imported: { name: "Imported", website: "https://example.com" } }));
-  await vi.waitFor(() => {
-    flush();
-    expect(f.container.textContent).toContain("Profile imported. Review and publish.");
-  });
-  expect(f.container.querySelector<HTMLInputElement>("#nostr-profile-displayName")!.value).toBe(
-    "Typed during import",
-  );
-  expect(f.container.querySelector<HTMLInputElement>("#nostr-profile-website")!.value).toBe(
-    "https://example.com",
-  );
-  expect(f.container.textContent).toContain("Profile imported. Review and publish.");
+  await f.waitForText("Profile imported. Review and publish.");
+  expect(f.input("displayName").value).toBe("Typed during import");
+  expect(f.input("website").value).toBe("https://example.com");
   expect(f.refresh).not.toHaveBeenCalled();
 });
 
@@ -177,15 +192,13 @@ it("renders validation details and clears a field error on editing", async () =>
     data: { ok: false, details: ["name: Name is too long"] },
     errorMessage: "HTTP 400: Validation failed",
   });
-  f.button("Save & Publish").click();
+  f.click("Save & Publish");
   await settle();
   expect(f.container.querySelector('[role="alert"]')?.textContent).toContain(
     "HTTP 400: Validation failed",
   );
   expect(f.container.textContent).toContain("Name is too long");
-  expect(f.container.querySelector("#nostr-profile-name")?.getAttribute("aria-invalid")).toBe(
-    "true",
-  );
+  expect(f.input("name").getAttribute("aria-invalid")).toBe("true");
   f.field("name", "Short");
   expect(f.container.textContent).not.toContain("Name is too long");
   expect(f.refresh).not.toHaveBeenCalled();
@@ -194,7 +207,7 @@ it("renders validation details and clears a field error on editing", async () =>
 it("keeps failed publication dirty without refreshing channel status", async () => {
   const f = fixture();
   f.request.mockResolvedValue(ok({ ok: true, persisted: false }));
-  f.button("Save & Publish").click();
+  f.click("Save & Publish");
   await settle();
   expect(f.container.textContent).toContain("Profile publish failed on all relays.");
   expect(f.button("Save & Publish").disabled).toBe(false);
@@ -209,25 +222,10 @@ it.each(["Save & Publish", "Import from Relays"])(
     f.request.mockImplementation(
       ({ signal }) =>
         new Promise((_resolve, reject) => {
-          signal.addEventListener(
-            "abort",
-            () => {
-              try {
-                signal.throwIfAborted();
-              } catch (error) {
-                reject(
-                  error instanceof Error || error instanceof DOMException
-                    ? error
-                    : new Error("Unexpected abort reason", { cause: error }),
-                );
-              }
-            },
-            { once: true },
-          );
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
         }),
     );
-    f.button(action).click();
-    flush();
+    f.click(action);
     await vi.advanceTimersByTimeAsync(29_999);
     expect(f.container.textContent).not.toContain("Request timed out");
     expect(f.request.mock.calls[0]![0].signal.aborted).toBe(false);
@@ -246,20 +244,14 @@ it.each(["disconnect", "replacement form", "abort"] as const)(
   "drops late import success and failure after %s before host formatting",
   async (retirement) => {
     const f = fixture();
-    const pending =
-      createDeferred<Awaited<ReturnType<ControlUiChannelSettingsContext["request"]>>>();
-    f.request.mockReturnValueOnce(pending.promise);
-    f.button("Import from Relays").click();
-    flush();
+    const pending = f.pending("Import from Relays");
     if (retirement === "disconnect") {
       f.update({ connected: false, connectionEpoch: 2 });
       expect(f.button("Save & Publish").disabled).toBe(true);
       expect(f.button("Import from Relays").disabled).toBe(true);
     } else if (retirement === "replacement form") {
-      f.button("Cancel").click();
-      flush();
-      f.button("Edit Profile").click();
-      flush();
+      f.click("Cancel");
+      f.click("Edit Profile");
       f.field("name", "Fresh draft");
     } else {
       f.abort.abort();
@@ -272,24 +264,18 @@ it.each(["disconnect", "replacement form", "abort"] as const)(
     expect(f.refresh).not.toHaveBeenCalled();
     expect(f.formatError).not.toHaveBeenCalled();
     if (retirement === "disconnect") {
-      expect(f.container.querySelector<HTMLInputElement>("#nostr-profile-name")!.value).toBe(
-        "Alice Updated",
-      );
+      expect(f.input("name").value).toBe("Alice Updated");
       f.update({ connected: true, connectionEpoch: 3 });
       expect(f.button("Import from Relays").disabled).toBe(false);
     } else if (retirement === "replacement form") {
-      expect(f.container.querySelector<HTMLInputElement>("#nostr-profile-name")!.value).toBe(
-        "Fresh draft",
-      );
+      expect(f.input("name").value).toBe("Fresh draft");
     }
   },
 );
 
 it("does not format a late failure after the view aborts", async () => {
   const f = fixture();
-  const pending = createDeferred<Awaited<ReturnType<ControlUiChannelSettingsContext["request"]>>>();
-  f.request.mockReturnValue(pending.promise);
-  f.button("Save & Publish").click();
+  const pending = f.pending("Save & Publish");
   f.abort.abort();
   pending.reject(new Error("late failure"));
   await settle();
@@ -299,19 +285,12 @@ it("does not format a late failure after the view aborts", async () => {
 
 it("settles while hidden and catches the retained editor up once on reveal", async () => {
   const f = fixture();
-  const pending = createDeferred<Awaited<ReturnType<ControlUiChannelSettingsContext["request"]>>>();
-  f.request.mockReturnValue(pending.promise);
-  f.button("Import from Relays").click();
-  flush();
+  const pending = f.pending("Import from Relays");
   f.update({ presented: false });
   pending.resolve(ok({ ok: true, saved: false, merged: { name: "Imported while hidden" } }));
   await settle();
-  expect(f.container.querySelector<HTMLInputElement>("#nostr-profile-name")!.value).toBe(
-    "Alice Updated",
-  );
+  expect(f.input("name").value).toBe("Alice Updated");
   f.update({ presented: true });
-  expect(f.container.querySelector<HTMLInputElement>("#nostr-profile-name")!.value).toBe(
-    "Imported while hidden",
-  );
+  expect(f.input("name").value).toBe("Imported while hidden");
   expect(f.container.textContent).toContain("Profile imported.");
 });
