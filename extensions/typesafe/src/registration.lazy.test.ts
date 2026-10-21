@@ -27,18 +27,13 @@ async function register() {
   const { default: plugin } = await import("../index.js");
   let config: { baseUrl?: string } = { baseUrl: "http://127.0.0.1:1234" };
   let provider: DecisionProviderV1 | undefined;
+  const current = () => ({ plugins: { entries: { typesafe: { config } } } });
   plugin.register({
-    runtime: {
-      config: {
-        current: () => ({ plugins: { entries: { typesafe: { config } } } }),
-      },
-    },
+    runtime: { config: { current } },
     registerDecisionProvider: (
       registered: Parameters<OpenClawPluginApi["registerDecisionProvider"]>[0],
     ) => {
-      provider = legacyWireFixture(registered, () =>
-        resolveRuntimeConfig({ plugins: { entries: { typesafe: { config } } } }),
-      );
+      provider = legacyWireFixture(registered, () => resolveRuntimeConfig(current()));
     },
   } as unknown as OpenClawPluginApi);
   expect(provider).toBeDefined();
@@ -50,27 +45,29 @@ async function register() {
   };
 }
 
-function evaluator() {
-  return vi.fn(async (input: { model: string }, _config: RuntimeConfig) => ({
+function pendingEvaluator() {
+  const started = createDeferred<void>();
+  const release = createDeferred<void>();
+  const evaluate = vi.fn(async (input: { model: string }, _config: RuntimeConfig) => ({
     evaluation: {
       model: input.model,
       answers: { q: { type: "noul", noul: 0.75 } },
       usage: { input_tokens: 3, output_tokens: 1 },
     },
   }));
+  const initialize = vi.fn(async () => {
+    started.resolve();
+    await release.promise;
+    return { evaluate };
+  });
+  vi.doMock("./client.js", initialize);
+  return { started, release, evaluate, initialize };
 }
 
 it.each(["abort", "deadline", "config", "credentials"] as const)(
   "observes %s changes while the evaluator import is pending",
   async (change) => {
-    const started = createDeferred<void>();
-    const release = createDeferred<void>();
-    const evaluate = evaluator();
-    vi.doMock("./client.js", async () => {
-      started.resolve();
-      await release.promise;
-      return { evaluate };
-    });
+    const { started, release, evaluate } = pendingEvaluator();
     const { provider, setConfig } = await register();
     const clock = vi.spyOn(performance, "now").mockReturnValue(100);
     const controller = new AbortController();
@@ -100,15 +97,7 @@ it.each(["abort", "deadline", "config", "credentials"] as const)(
 );
 
 it("shares a pending evaluator initialization with a later first caller", async () => {
-  const started = createDeferred<void>();
-  const release = createDeferred<void>();
-  const evaluate = evaluator();
-  const initialize = vi.fn(async () => {
-    started.resolve();
-    await release.promise;
-    return { evaluate };
-  });
-  vi.doMock("./client.js", initialize);
+  const { started, release, evaluate, initialize } = pendingEvaluator();
   const { provider } = await register();
   expect(provider.isReady?.()).toBe(true);
   expect(initialize).not.toHaveBeenCalled();

@@ -39,6 +39,12 @@ function mockFetch(implementation: typeof globalThis.fetch) {
   vi.stubGlobal("fetch", fetch);
   return fetch;
 }
+function withAnswer(id: keyof typeof answer.answers, patch: Record<string, unknown>) {
+  return { ...answer, answers: { ...answer.answers, [id]: { ...answer.answers[id], ...patch } } };
+}
+function privateQuestion(question: Record<string, unknown>) {
+  return { ...input, state: "private state", questions: { "private ID": question } };
+}
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -100,23 +106,9 @@ describe("bounded contracts", () => {
     { ...input, state: Array(262145) },
     { ...input, state: { bad: Infinity } },
     { ...input, questions: { bad: { type: "score", criteria: ["only"] } } },
-    {
-      ...input,
-      state: "private state",
-      questions: { "private ID": { type: "noul", instructions: 42 } },
-    },
-    {
-      ...input,
-      state: "private state",
-      questions: { "private ID": { type: "noul", criteria: { true: false } } },
-    },
-    {
-      ...input,
-      state: "private state",
-      questions: {
-        "private ID": { type: "choice", criteria: { a: { nested: undefined }, b: "B" } },
-      },
-    },
+    privateQuestion({ type: "noul", instructions: 42 }),
+    privateQuestion({ type: "noul", criteria: { true: false } }),
+    privateQuestion({ type: "choice", criteria: { a: { nested: undefined }, b: "B" } }),
   ])("rejects invalid input before dispatch without leaking content", async (value) => {
     const fetch = mockFetch(vi.fn());
     expect(() => parseInput(value)).toThrow();
@@ -126,33 +118,12 @@ describe("bounded contracts", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
   it.each([
-    { ...answer, answers: { ...answer.answers, relevant: { type: "noul", noul: 1.01 } } },
-    {
-      ...answer,
-      answers: { ...answer.answers, route: { ...answer.answers.route, choice: "other" } },
-    },
-    {
-      ...answer,
-      answers: {
-        ...answer.answers,
-        route: { ...answer.answers.route, probabilities: { keep: 0.5, other: 0.5 } },
-      },
-    },
-    {
-      ...answer,
-      answers: {
-        ...answer.answers,
-        route: { ...answer.answers.route, probabilities: { keep: 0, skip: 0 } },
-      },
-    },
-    { ...answer, answers: { ...answer.answers, quality: { ...answer.answers.quality, score: 2 } } },
-    {
-      ...answer,
-      answers: {
-        ...answer.answers,
-        quality: { ...answer.answers.quality, legend: { 0: "Wrong", 1: "High" } },
-      },
-    },
+    withAnswer("relevant", { noul: 1.01 }),
+    withAnswer("route", { choice: "other" }),
+    withAnswer("route", { probabilities: { keep: 0.5, other: 0.5 } }),
+    withAnswer("route", { probabilities: { keep: 0, skip: 0 } }),
+    withAnswer("quality", { score: 2 }),
+    withAnswer("quality", { legend: { 0: "Wrong", 1: "High" } }),
   ])("rejects malformed or mismatched responses", (value) =>
     expect(() => parseResult(value, parseInput(input))).toThrow("invalid evaluation response"),
   );
