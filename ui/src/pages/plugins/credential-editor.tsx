@@ -305,7 +305,9 @@ export function PluginCredentialEditor(props: PluginCredentialEditorProps) {
     })();
     // An action owns its opening tick, including already queued owner writes.
     // Let same-turn save/refresh continuations publish before starting presentation.
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
     return current() ? mutateReference(admitted, completed) : completed;
   }
 
