@@ -9,9 +9,6 @@ const runtimeMocks = vi.hoisted(() => ({
   ensureMatrixCryptoRuntime: vi.fn(async () => {}),
   handleMatrixSubagentDeliveryTarget: vi.fn(() => "delivery-target"),
   handleMatrixSubagentEnded: vi.fn(async () => {}),
-  handleVerificationBootstrap: vi.fn(async () => {}),
-  handleVerificationStatus: vi.fn(async () => {}),
-  handleVerifyRecoveryKey: vi.fn(async () => {}),
   setMatrixRuntime: vi.fn(),
 }));
 
@@ -60,9 +57,7 @@ describe("matrix plugin", () => {
   });
 
   it("keeps runtime bootstrap and CLI metadata out of setup-only registration", () => {
-    if (!entry.setChannelRuntime) {
-      throw new Error("expected Matrix runtime setter");
-    }
+    assert.isFunction(entry.setChannelRuntime);
     entry.setChannelRuntime({ marker: "runtime" } as never);
     expect(runtimeMocks.setMatrixRuntime).not.toHaveBeenCalled();
   });
