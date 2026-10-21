@@ -23,6 +23,7 @@ suite.define(() => {
       { locale: "en-US", serviceWorkers: "block", viewport: { width: 1440, height: 1000 } },
       async ({ page }) => {
         await page.addInitScript(() => {
+          // oxlint-disable-next-line typescript/unbound-method -- The intercepted image remains the receiver via .call(this).
           const decode = HTMLImageElement.prototype.decode;
           HTMLImageElement.prototype.decode = function () {
             const result = decode.call(this);
