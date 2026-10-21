@@ -1,18 +1,33 @@
-import { Show, For, type Accessor } from "solid-js";
+import { Errored, For, lazy, Loading, onSettled, Show, type Accessor } from "solid-js";
 import { beginNativeWindowDrag } from "../app/native-window-drag.ts";
+import {
+  cancelStaleChunkRecovery,
+  isStaleChunkImportError,
+  retryStaleChunkReloadWhenReachable,
+} from "../app/stale-chunk-reload.ts";
 import { t } from "../lib/reactive/i18n.ts";
 import type { JSX } from "../types/solid-elements.d.ts";
 import type { AssistantPanelOwner } from "./assistant-panel-controller.ts";
 import { AssistantPanelLoading } from "./assistant-panel-loading.tsx";
 import { Icon } from "./solid/icon.tsx";
-import { LazyElementStateView } from "./solid/lazy-view-error.tsx";
+import { LazyViewError } from "./solid/lazy-view-error.tsx";
 import { askBrandLabel } from "./theme-brand-label.ts";
 
-export function AssistantPanelView(props: { state: Accessor<AssistantPanelOwner> }): JSX.Element {
+// Reuse the resolved renderer across context-only remounts of the same host.
+const Content = lazy(() => import("./assistant-panel-content.ts"), {
+  export: "AssistantPanelContent",
+});
+
+export function AssistantPanelView(props: {
+  state: Accessor<AssistantPanelOwner>;
+  onContentLoaded: () => void;
+}): JSX.Element {
   const state = () => props.state();
   const resizer = () => state().dockLayout.resizer;
   const visible = () => state().available() && state().dockLayout.open;
   const dock = () => state().dockLayout.dock;
+  const waitingForHome = () => state().destination() === "home" && !state().homeStarted();
+  const contentActive = () => visible() && !waitingForHome();
   const session = () => {
     const destination = state().destination();
     return typeof destination === "string" ? undefined : destination.params;
@@ -23,14 +38,19 @@ export function AssistantPanelView(props: { state: Accessor<AssistantPanelOwner>
     return typeof destination === "string" ? destination : "session";
   };
   const contentDefined = () => state().contentDefined();
-  const contentState = () => state().contentLoader.visibleState;
   const style = () =>
     dock() === "bottom"
       ? `height:${state().dockLayout.height}px`
       : `width:${state().dockLayout.width}px`;
   return (
     <section
-      class={["assistant-panel", `assistant-panel--${dock()}`]}
+      class={[
+        "assistant-panel",
+        {
+          "assistant-panel--right": dock() === "right",
+          "assistant-panel--bottom": dock() === "bottom",
+        },
+      ]}
       style={style()}
       hidden={!visible()}
       aria-label={t("assistantPanel.title")}
@@ -40,7 +60,13 @@ export function AssistantPanelView(props: { state: Accessor<AssistantPanelOwner>
       <Show when={resizer()}>
         {(geometry) => (
           <resizable-divider
-            class={["assistant-panel-resizer", `assistant-panel-resizer--${dock()}`]}
+            class={[
+              "assistant-panel-resizer",
+              {
+                "assistant-panel-resizer--right": dock() === "right",
+                "assistant-panel-resizer--bottom": dock() === "bottom",
+              },
+            ]}
             prop:orientation={geometry().orientation}
             prop:label={t("assistantPanel.resize")}
             prop:splitRatio={geometry().splitRatio}
@@ -124,34 +150,84 @@ export function AssistantPanelView(props: { state: Accessor<AssistantPanelOwner>
           </button>
         </div>
       </header>
-      {contentDefined() ? (
-        <openclaw-assistant-panel-content
-          hidden={!visible() || (state().destination() === "home" && !state().homeStarted())}
-          prop:active={visible() && (state().destination() !== "home" || state().homeStarted())}
-          prop:destination={destinationKind()}
-          prop:sessionKey={target().sessionKey}
-          prop:agentId={target().agentId}
-          prop:sessionContext={session()?.context}
-          prop:context={state().context()}
-          prop:pageRouteId={state().props.pageRouteId}
-          prop:pageSessionKey={state().props.pageSessionKey}
-          prop:pageAgentId={state().props.pageAgentId}
-          prop:store={state().props.store}
-          prop:onStore={(store) => state().acceptStore(store)}
-        />
-      ) : undefined}
-      {visible() &&
-      (!contentDefined() || (state().destination() === "home" && !state().homeStarted())) ? (
-        contentState()?.status === "error" ? (
-          <LazyElementStateView
-            state={contentState()!}
-            onRetry={() => state().contentLoader.retry()}
-            onClose={() => state().setOpen(false)}
-          />
-        ) : (
-          <AssistantPanelLoading />
-        )
-      ) : undefined}
+      <Show when={contentDefined() || state().shouldLoadContent()}>
+        {(_shown) => {
+          // The boundary reports rejection; success still notifies a dismissed view.
+          void Content.preload().then(
+            () => props.onContentLoaded(),
+            () => {},
+          );
+          return (
+            <Errored
+              fallback={(error, reset) => {
+                let active = true;
+                const canRetry = () => active && state().shouldLoadContent();
+                async function retry() {
+                  if (!canRetry()) {
+                    return;
+                  }
+                  if (
+                    isStaleChunkImportError(error()) &&
+                    (await retryStaleChunkReloadWhenReachable({ canReload: canRetry }))
+                  ) {
+                    return;
+                  }
+                  if (canRetry()) {
+                    reset();
+                  }
+                }
+                onSettled(() => {
+                  const stale = isStaleChunkImportError(error());
+                  return () => {
+                    active = false;
+                    if (stale) {
+                      cancelStaleChunkRecovery();
+                    }
+                  };
+                });
+                return (
+                  <LazyViewError
+                    actionLabel={t("common.retry")}
+                    error={error()}
+                    stale={isStaleChunkImportError(error())}
+                    subtitle={t("assistantPanel.title")}
+                    onClose={() => state().setOpen(false)}
+                    onRetry={() => {
+                      void retry();
+                    }}
+                  />
+                );
+              }}
+            >
+              <Loading
+                fallback={
+                  <Show when={!waitingForHome()}>
+                    <AssistantPanelLoading />
+                  </Show>
+                }
+              >
+                <Content
+                  hidden={!contentActive()}
+                  active={contentActive()}
+                  destination={destinationKind()}
+                  sessionKey={target().sessionKey}
+                  agentId={target().agentId}
+                  sessionContext={session()?.context}
+                  context={state().context()}
+                  pageRouteId={state().props.pageRouteId}
+                  pageSessionKey={state().props.pageSessionKey}
+                  pageAgentId={state().props.pageAgentId}
+                  store={state().props.store}
+                  onStore={(store) => state().acceptStore(store)}
+                />
+              </Loading>
+            </Errored>
+          );
+        }}
+      </Show>
+      <Show when={visible() && waitingForHome()}>
+        <AssistantPanelLoading />
+      </Show>
     </section>
   );
 }
