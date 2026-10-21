@@ -22,6 +22,7 @@ import {
   createTestParams,
   createCodexRuntimePlanFixture,
   createStartedThreadHarness,
+  extractGenerationFromThreadRequest,
   extractRelayIdFromThreadRequest,
   runCodexAppServerAttempt,
   setCodexTestModelSupportsTools,
@@ -181,9 +182,10 @@ it.each([
   );
   try {
     await run.waitForTurnAccepted();
-    const relayId = extractRelayIdFromThreadRequest(
-      harness.requests.find((request) => request.method === "thread/start")?.params,
-    );
+    const threadRequest = harness.requests.find(
+      (request) => request.method === "thread/start",
+    )?.params;
+    const relayId = extractRelayIdFromThreadRequest(threadRequest);
     await spawn(childThreadId, "turn-a");
     if (scenario === "code-mode-hook") {
       await resultItem(childThreadId, "turn-a", "A result");
@@ -222,13 +224,11 @@ it.each([
       "rawResponseItem/completed",
     );
     if (scenario === "code-mode-hook") {
-      const registration = nativeHookRelayTesting.getNativeHookRelayRegistrationForTests(relayId);
-      assert(registration);
       expect(delivery.mock.calls.filter(([call]) => call.childSessionKey === runB)).toEqual([]);
       await invokeNativeHookRelay({
         provider: "codex",
         relayId,
-        generation: registration.generation,
+        generation: extractGenerationFromThreadRequest(threadRequest),
         requireGeneration: true,
         event: "post_tool_use",
         rawPayload: {
