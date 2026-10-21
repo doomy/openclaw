@@ -8,7 +8,8 @@ const { postJsonRequest, postMultipartRequest } = vi.hoisted(() => ({
   postJsonRequest: vi.fn(),
   postMultipartRequest: vi.fn(),
 }));
-vi.mock("openclaw/plugin-sdk/provider-auth-runtime", () => ({
+vi.mock("openclaw/plugin-sdk/provider-auth-runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("openclaw/plugin-sdk/provider-auth-runtime")>()),
   resolveApiKeyForProvider: async () => ({ apiKey: "image-fixture-key", mode: "api-key" }),
 }));
 vi.mock("openclaw/plugin-sdk/provider-http", async (importOriginal) => ({
