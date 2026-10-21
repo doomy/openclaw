@@ -196,7 +196,6 @@ export function loadControlUiSourceCatalog(): TranslationMap {
       },
       chat: {
         ...en.chat,
-        ...registerChatComposerEnglish.catalog.chat,
         ...registerChatSessionEnglish.catalog.chat,
         commands: registerCommandPaletteEnglish.catalog.chat.commands,
         welcome: registerCommandPaletteEnglish.catalog.chat.welcome,
@@ -237,6 +236,7 @@ export function loadControlUiSourceCatalog(): TranslationMap {
     registerChatCameraEnglish.catalog,
     registerChatCiEnglish.catalog,
     registerChatCommandResultsEnglish.catalog,
+    registerChatComposerEnglish.catalog,
     registerChatGoalsEnglish.catalog,
     registerChatProviderReviewEnglish.catalog,
     registerCodeBlocksEnglish.catalog,

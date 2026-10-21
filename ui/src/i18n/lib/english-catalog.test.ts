@@ -4,7 +4,6 @@ import { expect, it, vi } from "vitest";
 import { registerEnglishCatalog, t } from "../../lib/reactive/i18n.ts";
 import { registerBoardWebsiteEnglish } from "../locales/en-board-website.ts";
 import { registerBoardEnglish } from "../locales/en-board.ts";
-import { registerChatComposerEnglish } from "../locales/en-chat-composer.ts";
 import { registerChatSessionEnglish } from "../locales/en-chat-session.ts";
 import { en } from "../locales/en.ts";
 import { loadLazyLocaleTranslation } from "./registry.ts";
@@ -14,7 +13,7 @@ import type { TranslationMap } from "./types.ts";
 
 vi.hoisted(() => vi.resetModules());
 
-it("keeps shared chat labels eager while lazy renderers extend their retained namespaces", async () => {
+it("keeps shared session labels eager while lazy renderers extend their retained namespaces", async () => {
   const restoreI18n = captureI18nStateForTesting();
   const snapshots: { target: TranslationMap; value: TranslationMap }[] = [];
   function remember(target: TranslationMap): void {
@@ -26,28 +25,17 @@ it("keeps shared chat labels eager while lazy renderers extend their retained na
     }
   }
   remember(en.chat);
-  const composer = en.chat.composer;
-  const menu = composer.menu;
   const details = en.chat.sessionDetails;
   const diff = en.chat.sessionDiff;
   try {
     await i18n.setLocale("en");
-    expect(t("chat.composer.sendingMessage")).toBe("Sending message...");
-    expect(t("chat.composer.menu.adminBlocked")).toBe(
-      "Admin access is required to manage connectors.",
-    );
     expect(t("chat.sessionDetails.progressOptions")).toBe("Task progress options");
     expect(t("chat.sessionDiff.title")).toBe("Changes");
-    expect(t("chat.composer.cancelReply")).toBe("chat.composer.cancelReply");
     expect(t("chat.activityPills.label")).toBe("chat.activityPills.label");
 
-    registerEnglishCatalog(registerChatComposerEnglish);
     registerEnglishCatalog(registerChatSessionEnglish);
-    expect(t("chat.composer.cancelReply")).toBe("Cancel reply");
     expect(t("chat.activityPills.label")).toBe("Session activity");
     expect(t("chat.sessionDiff.modeUnified")).toBe("Unified");
-    expect(en.chat.composer).toBe(composer);
-    expect(en.chat.composer.menu).toBe(menu);
     expect(en.chat.sessionDetails).toBe(details);
     expect(en.chat.sessionDiff).toBe(diff);
   } finally {

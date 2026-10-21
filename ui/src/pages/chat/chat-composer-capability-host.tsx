@@ -8,7 +8,6 @@ import { readGatewayOperatorAccess } from "../../app/operator-access.ts";
 import type { McpServerForm } from "../../components/mcp-server-form.ts";
 import "../../components/modal-dialog.ts";
 import { LoadingState } from "../../components/solid/loading-state.tsx";
-import { registerChatComposerEnglish } from "../../i18n/locales/en-chat-composer.ts";
 import { registerMcpEnglish } from "../../i18n/locales/en-mcp.ts";
 import { buildToolsEffectiveRequestKey } from "../../lib/agents/tools-effective.ts";
 import { currentDisplayRuntimeConfig } from "../../lib/config/config-state-model.ts";
@@ -21,7 +20,7 @@ import {
 } from "../../lib/config/mcp-servers.ts";
 import { formatUiError, formatUiExternalText } from "../../lib/format-error.ts";
 import { canCallGatewayMethod, isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
-import { registerEnglishCatalog, t } from "../../lib/reactive/i18n.ts";
+import { t } from "../../lib/reactive/i18n.ts";
 import { readSessionMethodAccess } from "../../lib/session-method-access.ts";
 import {
   scopedAgentListParamsForSession,
@@ -39,8 +38,6 @@ import {
   composerWebSearchBaseEnabled,
 } from "./composer-capability-catalog.ts";
 import { ComposerLibrarySession } from "./composer-library-session.ts";
-
-registerEnglishCatalog(registerChatComposerEnglish);
 
 registerMcpEnglish();
 

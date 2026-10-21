@@ -8,6 +8,7 @@ export const en: TranslationMap & {
   gatewayLogs: TranslationMap;
   standingGrants: TranslationMap;
   approvalHistory: TranslationMap;
+  approvalPage: TranslationMap;
   secretsStore: TranslationMap &
     Record<
       "allowedHosts" | "allowedHostsPlaceholder" | "protectedSecret" | "agentReadable" | "hint",
@@ -43,51 +44,15 @@ export const en: TranslationMap & {
       | "youtube"
       | "rail"
       | "thread"
-      | "permissions"
       | "sessionDiscussion",
       TranslationMap
     > & {
-      composer: TranslationMap &
-        Record<
-          | "holdToRecordSetting"
-          | "holdToRecordSettingDescription"
-          | "noCameras"
-          | "noMicrophones"
-          | "systemDefaultCamera"
-          | "systemDefaultMicrophone"
-          | "cameraInput"
-          | "microphoneInput"
-          | "compactingContext"
-          | "contextCompacted"
-          | "sendingMessage"
-          | "dictationDisconnected"
-          | "dictationBrowserAudioUnsupported"
-          | "dictationAudioUnsupported"
-          | "dictationFailed"
-          | "microphoneListUnsupported"
-          | "cameraListUnsupported"
-          | "microphoneNoneFound"
-          | "cameraNoneFound"
-          | "microphonePermissionBlocked"
-          | "cameraPermissionBlocked"
-          | "microphoneBusy"
-          | "cameraBusy"
-          | "microphonePageInactive"
-          | "cameraPageInactive"
-          | "microphoneAccessFailed"
-          | "cameraAccessFailed"
-          | "microphoneFallback"
-          | "cameraFallback"
-          | "selectedMicrophoneUnavailable"
-          | "realtimeTalkRequiresMicrophone"
-          | "selectedCameraUnavailable"
-          | "microphoneStopped"
-          | "microphoneAccessPending",
-          string
-        > & {
-          menu: TranslationMap & Record<"adminBlocked" | "offlineBlocked", string>;
-          overrides: TranslationMap & Record<"count" | "countOne", string>;
-        };
+      composer: TranslationMap;
+      queue: TranslationMap;
+      mentions: TranslationMap;
+      permissions: TranslationMap;
+      voice: TranslationMap;
+      sendErrors: TranslationMap;
       sessionDetails: TranslationMap &
         Record<
           | "automationAttention"
@@ -1215,55 +1180,7 @@ export const en: TranslationMap & {
       ask: "Ask",
     },
   },
-  approvalPage: {
-    brandName: "OpenClaw",
-    eyebrow: "Operator approval",
-    loadingTitle: "Loading approval",
-    loadingDescription: "Checking the current approval state with the Gateway.",
-    unavailableTitle: "Approval unavailable",
-    unavailableDescription:
-      "This approval could not be found or this device is not authorized to review it.",
-    connectionErrorTitle: "Connection interrupted",
-    connectionErrorDescription:
-      "OpenClaw cannot confirm or record a decision while disconnected. Reconnect to check the current status.",
-    retry: "Retry",
-    execTitle: "Command approval",
-    watcherTitle: "Watcher approval: {name}",
-    watcherChangeTitle: "Watcher change: {name}",
-    watcherLifetime:
-      "If saved and enabled, this watcher runs after you leave this chat, until stopped. It is configured to restart automatically after interruptions.",
-    watcherAllowed:
-      "This proposal was approved. Approval alone does not confirm that the change was saved or the watcher started. Check its current status in Automations.",
-    watcherNotCreated: "This proposal did not create a watcher.",
-    watcherNotChanged:
-      "This proposal did not save the change. It did not stop or change the existing watcher.",
-    pending: "Waiting for your decision",
-    pendingDescription: "Review the request carefully. The first answer from any surface wins.",
-    approvedHere: "Approved here",
-    deniedHere: "Denied here",
-    resolvedElsewhere: "Resolved elsewhere",
-    resolvedElsewhereDescription:
-      "Another surface or an earlier attempt recorded the decision first.",
-    approved: "Approved",
-    denied: "Denied",
-    expired: "Expired",
-    cancelled: "Cancelled",
-    allowedOnceDescription: "The operation was approved for this request only.",
-    allowedAlwaysDescription: "The operation was approved with the always-allow decision.",
-    deniedDescription: "The operation was denied and will not continue.",
-    expiredDescription: "No decision arrived before the deadline, so the operation was denied.",
-    cancelledDescription: "This approval request was canceled and can no longer be used.",
-    summaryLabel: "Summary",
-    commandLabel: "Command",
-    requestLabel: "Request details",
-    nodeLabel: "Node",
-    expiresLabel: "Expires",
-    resolvedLabel: "Resolved",
-    actionsLabel: "Approval decisions",
-    resolvingDecision: "Recording {decision}…",
-    safeToClose: "The decision is recorded. You can close this page.",
-    openControlUi: "Open Control UI",
-  },
+  approvalPage: {},
   agentTools: {},
   skillGroups: {
     workspace: "Workspace Skills",
@@ -2147,25 +2064,7 @@ export const en: TranslationMap & {
       automatic: "Automatic (new-chat default)",
       manage: "Manage saved accounts…",
     },
-    mentions: {
-      menu: "Mention a person",
-      empty: "No people found",
-      truncated: "Keep typing to find more people.",
-      online: "Online",
-      offline: "Offline",
-      unavailable: "Could not load people. Try again.",
-      accessDenied: "Mention access denied. Sign in or contact an admin.",
-      profileUnavailable: "Profile unverified. Reconnect or contact an admin.",
-      rejected: "Mention search rejected. Check access or use another chat.",
-      limit: "You can mention up to 10 people per message.",
-      selectedLabel: "Will notify",
-      selected: "Will notify: {names}",
-      remove: "Remove mention",
-      restoreFailed:
-        "Mention selection could not be restored. Edit this message and select its recipients again.",
-      unsupported:
-        "Human mentions are not available in this mode. Remove the selected mentions or send from a normal chat.",
-    },
+    mentions: {},
     cloudWorkerFailed: "Runner failed: {error}",
     errorDetails: "Error details",
     errorReplySummary: "Couldn't finish this reply. Check the conversation before trying again.",
@@ -2195,17 +2094,7 @@ export const en: TranslationMap & {
     providerPolicy: {},
     diskSpace: {},
     workerRuntimeInstall: {},
-    sendErrors: {
-      outboxPayloadCopied:
-        "This queued message was copied from another tab. Check the conversation and retry only if it has not arrived.",
-      outboxPayloadCapacity:
-        "Browser attachment storage is full. Try a smaller batch or send/discard queued messages to free space. No new message was sent; your input is retained.",
-      outboxPayloadUnavailable:
-        "Browser attachment storage is unavailable. Allow browser storage and close older dashboard tabs before reconnecting and retrying. No new message was sent.",
-      outboxPayloadMissing:
-        "Queued attachments are missing or unreadable. This may be a stale copy from another tab. Check the conversation, then discard this row and attach the files again if needed. No new message was sent.",
-      activeLeafChanged: "The session switched branches — review and resend.",
-    },
+    sendErrors: {},
     waitingForApproval: "Waiting for approval…",
     waitingOnSubagents: "Waiting on subagents",
     waitingForMessage: "Waiting for a message",
@@ -2582,46 +2471,7 @@ export const en: TranslationMap & {
       send: "Send",
       sendMessage: "Send message",
     },
-    queue: {
-      reviewEdit: "Review edit",
-      reloadBlocked: "Save or cancel your queued message edit before reloading.",
-      connectionPending: "Finishing connection recovery. Try sending again when it is ready.",
-      editSourceChanged:
-        "This queued message changed while you were editing. Your edit is still here. Copy it, cancel the edit, and review the queue before trying again.",
-      editStorageFailed:
-        "Your edit could not be saved in this browser. Keep this tab open and copy your edit before freeing browser storage, then try again.",
-      full: "The message queue is full. Wait for a queued message to send or remove one, then try again.",
-      initialTurnPending:
-        "The initial message is unresolved. Reconnect if needed, then review it before sending another message.",
-      notSent: "Not sent",
-      deliveryUnconfirmed: "Delivery unconfirmed",
-      checkDelivery: "Check delivery",
-      checkDeliveryHelp:
-        "Delivery is unconfirmed. Check delivery looks for the original message without resending it or starting a worker. Inspect the conversation, or copy the retained prompt if you choose to start a separate attempt.",
-      retry: "Retry",
-      retryQueuedMessage: "Retry queued message",
-      discard: "Discard",
-      discardPendingMessage:
-        "Discard this local pending copy. This does not cancel a message already received by the Gateway.",
-      steer: "Steer",
-      steerQueuedMessage: "Steer queued message",
-      removeQueuedMessage: "Remove queued message",
-      reorderQueuedMessage: "Reorder queued message with the arrow keys",
-      reorderUnavailable: "This message holds its place and cannot be reordered",
-      editQueuedMessage: "Edit queued message",
-      moreActions: "More queued message actions",
-      cancelEdit: "Cancel editing and keep the queued message",
-      states: {
-        applyingSettings: "Applying chat settings",
-        blockedByUnconfirmed:
-          "Queue paused. Retry or discard the earlier unconfirmed message in the conversation.",
-        runningCommand: "Running command",
-        waitingForReconnect: "Waiting for reconnect",
-        editing: "Editing",
-        needsReview: "Delivery uncertain",
-      },
-      imageCount: "Image ({count})",
-    },
+    queue: {},
     goals: {},
     asyncQuestions: {},
     questions: {
@@ -2803,56 +2653,7 @@ export const en: TranslationMap & {
       reason: "Run /pair qr again to generate a fresh setup code.",
       badge: "Expired",
     },
-    composer: {
-      sendingMessage: "Sending message...",
-      compactingContext: "Compacting context...",
-      contextCompacted: "Context compacted",
-      menu: {
-        offlineBlocked: "Connect to the gateway to change session capabilities.",
-        adminBlocked: "Admin access is required to manage connectors.",
-      },
-      overrides: {
-        count: "{count} overrides",
-        countOne: "{count} override",
-      },
-      cameraAccessFailed: "Unable to access the camera.",
-      cameraBusy: "The camera is busy or unavailable to the browser.",
-      cameraFallback: "Camera {number}",
-      cameraInput: "Camera",
-      cameraListUnsupported: "This browser cannot list cameras.",
-      cameraNoneFound: "No camera was found.",
-      cameraPageInactive: "Cameras are unavailable while this page is inactive.",
-      cameraPermissionBlocked:
-        "Camera access is blocked. Allow camera access in browser site settings.",
-      microphoneAccessFailed: "Unable to access microphone inputs.",
-      microphoneAccessPending:
-        "Waiting for microphone access. Bring this tab to the foreground and allow access if prompted.",
-      microphoneBusy: "Microphone inputs are busy or unavailable to the browser.",
-      microphoneStopped: "Microphone input stopped. Choose an available input and start again.",
-      microphoneFallback: "Microphone {number}",
-      microphoneInput: "Microphone input",
-      microphoneListUnsupported: "This browser cannot list microphone inputs.",
-      noCameras: "No additional cameras found",
-      noMicrophones: "No additional microphones found",
-      microphoneNoneFound: "No microphone found. Plug one in and it appears here.",
-      microphonePageInactive: "Microphone inputs are unavailable while this page is inactive.",
-      microphonePermissionBlocked:
-        "Microphone access is blocked. Allow it in browser site settings to list inputs.",
-      holdToRecordSetting: "Hold microphone button to start dictation",
-      holdToRecordSettingDescription:
-        "Hold until dictation starts, then release and keep speaking. Tap Stop to insert the transcript.",
-      dictationAudioUnsupported: "The Gateway returned an unsupported dictation audio format.",
-      dictationBrowserAudioUnsupported: "This browser cannot capture dictation audio at 8 kHz.",
-      dictationDisconnected: "Dictation stopped because the Gateway disconnected.",
-      dictationFailed: "Dictation failed.",
-      realtimeTalkRequiresMicrophone: "Realtime voice input requires browser microphone access.",
-      selectedMicrophoneUnavailable:
-        "The selected microphone is unavailable. Choose another input or System default.",
-      selectedCameraUnavailable:
-        "The selected camera is unavailable. Choose another camera or System default.",
-      systemDefaultMicrophone: "System default",
-      systemDefaultCamera: "System default",
-    },
+    composer: {},
     attachments: {
       allowImage: "Allow image",
       attachedFile: "Attached file",
@@ -2894,18 +2695,7 @@ export const en: TranslationMap & {
       omittedFromHistoryWithSize: "Omitted from history · {size}",
       video: "Video",
     },
-    voice: {
-      asking: "Asking OpenClaw...",
-      replyFailed: "The voice reply was interrupted. Start Talk again to retry.",
-      replyTimedOut:
-        "Talk stopped waiting. The agent's answer will appear in chat when it finishes.",
-      preparing: "Preparing voice session...",
-      connecting: "Connecting voice input...",
-      listening: "Listening...",
-      selectionFailed: "Could not change voices. Restart the call.",
-      selectionTimedOut: "Voice change timed out. Restart the call.",
-      selectionConfirmationFailed: "Voice change unconfirmed.",
-    },
+    voice: {},
     selectors: {
       loadMoreSessions: "Show more",
       loadMoreRosterSessions: "Load more sessions",

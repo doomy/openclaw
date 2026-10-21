@@ -4,10 +4,11 @@ import { Icon } from "../../../components/solid/icon.tsx";
 import { useScrollState } from "../../../components/solid/scroll-state.ts";
 import { registerChatSessionEnglish } from "../../../i18n/locales/en-chat-session.ts";
 import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
+import { createDocumentVisibility } from "../../../lib/reactive/platform.ts";
 import { getContextNoticeViewModel } from "./chat-composer-context.tsx";
 import { ChatDetailsContextContent, ChatDetailsContextSummary } from "./chat-details-context.tsx";
-import "./chat-details-environment-desktop.css";
 import { ChatDetailsDesktopSection } from "./chat-details-desktop-section.tsx";
+import "./chat-details-environment-desktop.css";
 import type { ChatDetailsEnvironmentDesktopProps, ChatDetailsProps } from "./chat-details-types.ts";
 import { ChatPanePlacement, createChatMachinePresentation } from "./chat-pane-placement.tsx";
 
@@ -49,9 +50,10 @@ export function ChatDetailsEnvironment(props: ChatDetailsEnvironmentDesktopProps
   const workspace = () => props.details.detailsWorkspace;
   const [localExpanded, setLocalExpanded] = createSignal(true);
   const expanded = () => props.expanded ?? localExpanded();
+  const visible = createDocumentVisibility();
   // The checkout owner loads and publishes; this leaf only supplies visible demand.
   const requestUncommitted = createMemo(() =>
-    props.presented && expanded() ? props.onRequestUncommitted : undefined,
+    props.presented && expanded() && visible() ? props.onRequestUncommitted : undefined,
   );
   const session = () => props.details.selectedSession;
   const placement = merge(

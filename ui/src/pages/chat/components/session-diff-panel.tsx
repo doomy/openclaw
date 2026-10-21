@@ -2,11 +2,11 @@ import { createMemo, createSignal, onCleanup, onSettled, Show } from "solid-js";
 import type { SessionsDiffResult } from "../../../../../packages/gateway-protocol/src/index.js";
 import { nativeGatewaysCapability } from "../../../app/native-gateways.runtime.ts";
 import { Icon } from "../../../components/solid/icon.tsx";
+import { PanelLoadingSkeleton } from "../../../components/solid/panel-loading-skeleton.tsx";
 import "../../../styles/chat/session-diff-mobile.css";
 import "../../../styles/session-panel-rail.css";
-import { PanelLoadingSkeleton } from "../../../components/solid/panel-loading-skeleton.tsx";
-import "../../../components/tooltip.ts";
 import { registerChatSessionEnglish } from "../../../i18n/locales/en-chat-session.ts";
+import "../../../components/tooltip.ts";
 import {
   expandSessionDiffGap,
   splitSessionDiffFileText,
@@ -21,6 +21,7 @@ import type { DiffLine } from "../../../lib/chat/tool-call-diff.ts";
 import { openEditor } from "../../../lib/editor-links.ts";
 import { formatUiError } from "../../../lib/format-error.ts";
 import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
+import { useVisiblePoll } from "../../../lib/reactive/visible-poll.ts";
 import type { DiffPresentation } from "./chat-diff-render.solid.tsx";
 import type { SessionDiffScope, SessionDiffProps } from "./chat-sidebar-content-types.ts";
 import { createSessionDiffChrome } from "./session-diff-chrome.tsx";
@@ -118,11 +119,15 @@ export function SessionDiffPanel(props: SessionDiffProps) {
       ...next,
     });
   }
-  const requestTarget = createMemo(() => ({
-    loader: props.loader,
-    owner: props.owner,
-    scope: scope(),
-  }));
+  const requestTarget = createMemo(
+    () => ({ loader: props.loader, owner: props.owner, scope: scope() }),
+    {
+      equals: (before, after) =>
+        before.loader === after.loader &&
+        before.owner === after.owner &&
+        before.scope === after.scope,
+    },
+  );
   const [reload, setReload] = createSignal<{
     target: ReturnType<typeof requestTarget>;
     result?: SessionsDiffResult;
@@ -169,6 +174,11 @@ export function SessionDiffPanel(props: SessionDiffProps) {
   });
 
   function RequestLifetime(requestProps: { request: ReturnType<typeof request> }) {
+    const [computing, setComputing] = createSignal(false);
+    let load: (() => Promise<void>) | undefined;
+    useVisiblePoll(500, () => void load?.(), {
+      enabled: () => computing() && props.active !== false,
+    });
     onSettled(() => {
       const { target, reload: requestedReload } = requestProps.request;
       const { loader, owner, scope: requestedScope } = target;
@@ -180,12 +190,22 @@ export function SessionDiffPanel(props: SessionDiffProps) {
       }
       let active = true;
       setPending(true);
-      void (async () => {
+      load = async () => {
+        if (props.active === false || document.visibilityState === "hidden") {
+          setComputing(true);
+          return;
+        }
+        setComputing(false);
+        let result: SessionsDiffResult | undefined;
         try {
-          const result =
+          result =
             (requestedReload?.target === target ? requestedReload.result : undefined) ??
             (await loader(target.scope));
           if (!active) {
+            return;
+          }
+          if (result.computing) {
+            setComputing(true);
             return;
           }
           const previous = value();
@@ -234,11 +254,12 @@ export function SessionDiffPanel(props: SessionDiffProps) {
             setFailure({ error });
           }
         } finally {
-          if (active) {
+          if (active && !result?.computing) {
             setPending(false);
           }
         }
-      })();
+      };
+      void load();
       return () => {
         active = false;
       };
@@ -460,6 +481,10 @@ export function SessionDiffPanel(props: SessionDiffProps) {
         return;
       }
       if (!isCurrent()) {
+        return;
+      }
+      if (freshResult.computing) {
+        loadDiff();
         return;
       }
       const freshFile = freshResult.files.find((file) => file.path === view.file.path);

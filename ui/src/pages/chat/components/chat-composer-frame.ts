@@ -5,7 +5,6 @@ import {
 } from "../../../app/settings.ts";
 import { t } from "../../../i18n/index.ts";
 import "../../../components/tooltip.ts";
-import { registerChatComposerEnglish } from "../../../i18n/locales/en-chat-composer.ts";
 import { registerChatGoalsEnglish } from "../../../i18n/locales/en-chat-goals.ts";
 import type { HumanMention } from "../../../lib/chat/chat-types.ts";
 import {
@@ -51,8 +50,6 @@ import {
 } from "./chat-composer-state.ts";
 import type { ChatComposerProps, ChatComposerState } from "./chat-composer-types.ts";
 import type { QuestionPanelProps } from "./chat-question-card.ts";
-
-registerChatComposerEnglish();
 
 registerChatGoalsEnglish();
 

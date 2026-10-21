@@ -1,11 +1,8 @@
 import { t } from "../../i18n/index.ts";
-import { registerChatComposerEnglish } from "../../i18n/locales/en-chat-composer.ts";
 import type { ChatAttachment } from "../../lib/chat/chat-types.ts";
 import { removeBrowserAnnotationWithUndo } from "./browser-annotation-removal.ts";
 import { ChatPaneHeader } from "./chat-pane-header.ts";
 import { getChatComposerState } from "./components/chat-composer-state.ts";
-
-registerChatComposerEnglish();
 
 export abstract class ChatPaneBrowserAnnotationRender extends ChatPaneHeader {
   private browserAnnotationFocus = new Map<string, HTMLButtonElement>();

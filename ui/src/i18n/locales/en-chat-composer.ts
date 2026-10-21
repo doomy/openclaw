@@ -1,8 +1,7 @@
 import type { TranslationMap } from "../lib/types.ts";
 import { en } from "./en.ts";
 
-// This copy follows its lazy rendering consumers; shared labels stay in en.ts.
-const enChatComposer = {
+const catalog = {
   chat: {
     composer: {
       running: "running",
@@ -18,14 +17,14 @@ const enChatComposer = {
       placeholderWithAttachments: "Add a message or paste more images...",
       preparingModel: "Preparing model...",
       responding: "{name} is responding...",
-      sendingMessage: en.chat.composer.sendingMessage,
+      sendingMessage: "Sending message...",
       working: "{name} is working...",
       runDone: "Done",
       runInterrupted: "Interrupted",
       localCancellationCaveat: "Cancellation requested; the local model may still be finishing.",
       runStatus: "Run status: {status}",
-      compactingContext: en.chat.composer.compactingContext,
-      contextCompacted: en.chat.composer.contextCompacted,
+      compactingContext: "Compacting context...",
+      contextCompacted: "Context compacted",
       fallbackActive: "Fallback active: {model}",
       modelFallbackEvent: "Model fallback: {from} → {to}",
       modelRestoredEvent: "Returned to selected model: {from} → {to}",
@@ -91,13 +90,13 @@ const enChatComposer = {
         depsMissing: "deps missing",
         skillBlocked: "not available for this agent",
         sessionTag: "session",
-        offlineBlocked: en.chat.composer.menu.offlineBlocked,
-        adminBlocked: en.chat.composer.menu.adminBlocked,
+        offlineBlocked: "Connect to the gateway to change session capabilities.",
+        adminBlocked: "Admin access is required to manage connectors.",
         savingBlocked: "Wait for the current session capability change to finish.",
       },
       overrides: {
-        count: en.chat.composer.overrides.count,
-        countOne: en.chat.composer.overrides.countOne,
+        count: "{count} overrides",
+        countOne: "{count} override",
         clear: "Clear session overrides",
       },
       contextUsage: {
@@ -119,29 +118,32 @@ const enChatComposer = {
         limitHours: "{hours}-hour limit",
       },
       takePhoto: "Take photo",
-      cameraAccessFailed: en.chat.composer.cameraAccessFailed,
-      cameraBusy: en.chat.composer.cameraBusy,
-      cameraFallback: en.chat.composer.cameraFallback,
-      cameraInput: en.chat.composer.cameraInput,
-      cameraListUnsupported: en.chat.composer.cameraListUnsupported,
-      cameraNoneFound: en.chat.composer.cameraNoneFound,
-      cameraPageInactive: en.chat.composer.cameraPageInactive,
-      cameraPermissionBlocked: en.chat.composer.cameraPermissionBlocked,
+      cameraAccessFailed: "Unable to access the camera.",
+      cameraBusy: "The camera is busy or unavailable to the browser.",
+      cameraFallback: "Camera {number}",
+      cameraInput: "Camera",
+      cameraListUnsupported: "This browser cannot list cameras.",
+      cameraNoneFound: "No camera was found.",
+      cameraPageInactive: "Cameras are unavailable while this page is inactive.",
+      cameraPermissionBlocked:
+        "Camera access is blocked. Allow camera access in browser site settings.",
       cameraPreview: "Camera preview",
       dismissVoiceInputError: "Dismiss voice input error",
-      microphoneAccessFailed: en.chat.composer.microphoneAccessFailed,
-      microphoneAccessPending: en.chat.composer.microphoneAccessPending,
-      microphoneBusy: en.chat.composer.microphoneBusy,
-      microphoneStopped: en.chat.composer.microphoneStopped,
-      microphoneFallback: en.chat.composer.microphoneFallback,
-      microphoneInput: en.chat.composer.microphoneInput,
+      microphoneAccessFailed: "Unable to access microphone inputs.",
+      microphoneAccessPending:
+        "Waiting for microphone access. Bring this tab to the foreground and allow access if prompted.",
+      microphoneBusy: "Microphone inputs are busy or unavailable to the browser.",
+      microphoneStopped: "Microphone input stopped. Choose an available input and start again.",
+      microphoneFallback: "Microphone {number}",
+      microphoneInput: "Microphone input",
       microphoneAppliesNextSession: "Changes apply when you start your next Talk session.",
-      microphoneListUnsupported: en.chat.composer.microphoneListUnsupported,
-      noCameras: en.chat.composer.noCameras,
-      noMicrophones: en.chat.composer.noMicrophones,
-      microphoneNoneFound: en.chat.composer.microphoneNoneFound,
-      microphonePageInactive: en.chat.composer.microphonePageInactive,
-      microphonePermissionBlocked: en.chat.composer.microphonePermissionBlocked,
+      microphoneListUnsupported: "This browser cannot list microphone inputs.",
+      noCameras: "No additional cameras found",
+      noMicrophones: "No additional microphones found",
+      microphoneNoneFound: "No microphone found. Plug one in and it appears here.",
+      microphonePageInactive: "Microphone inputs are unavailable while this page is inactive.",
+      microphonePermissionBlocked:
+        "Microphone access is blocked. Allow it in browser site settings to list inputs.",
       realtimeTalkCapability: "Tap to talk",
       dictationCapability: "Dictation",
       realtimeTalkProviderUnavailable: "No realtime voice provider is configured.",
@@ -151,13 +153,14 @@ const enChatComposer = {
       openRealtimeTalkSettings: "Talk settings",
       openDictationSettings: "Transcription setup",
       configureCapability: "Configure",
-      holdToRecordSetting: en.chat.composer.holdToRecordSetting,
+      holdToRecordSetting: "Hold microphone button to start dictation",
       holdToDictate: "Hold to start dictation",
-      holdToRecordSettingDescription: en.chat.composer.holdToRecordSettingDescription,
-      dictationAudioUnsupported: en.chat.composer.dictationAudioUnsupported,
-      dictationBrowserAudioUnsupported: en.chat.composer.dictationBrowserAudioUnsupported,
-      dictationDisconnected: en.chat.composer.dictationDisconnected,
-      dictationFailed: en.chat.composer.dictationFailed,
+      holdToRecordSettingDescription:
+        "Hold until dictation starts, then release and keep speaking. Tap Stop to insert the transcript.",
+      dictationAudioUnsupported: "The Gateway returned an unsupported dictation audio format.",
+      dictationBrowserAudioUnsupported: "This browser cannot capture dictation audio at 8 kHz.",
+      dictationDisconnected: "Dictation stopped because the Gateway disconnected.",
+      dictationFailed: "Dictation failed.",
       dictationInterruptedRecovery:
         "Captured text was inserted. Check your connection and try again.",
       dictationStartRecovery: "Check microphone access and transcription settings, then try again.",
@@ -170,30 +173,156 @@ const enChatComposer = {
       realtimeTalkMissingTurnIdentity: "Realtime output is missing its turn identity.",
       realtimeTalkRelayUnresponsive:
         "Talk ended because the Gateway has not acknowledged microphone audio for 30 seconds. Check the connection and start Talk again.",
-      realtimeTalkRequiresMicrophone: en.chat.composer.realtimeTalkRequiresMicrophone,
-      selectedMicrophoneUnavailable: en.chat.composer.selectedMicrophoneUnavailable,
-      selectedCameraUnavailable: en.chat.composer.selectedCameraUnavailable,
+      realtimeTalkRequiresMicrophone: "Realtime voice input requires browser microphone access.",
+      selectedMicrophoneUnavailable:
+        "The selected microphone is unavailable. Choose another input or System default.",
+      selectedCameraUnavailable:
+        "The selected camera is unavailable. Choose another camera or System default.",
       startVoiceInput: "Start voice input",
       voiceGestureHint: "Tap to talk · Hold to start dictation",
       stillListening: "Still listening",
       stopVoiceInput: "Stop voice input",
-      systemDefaultMicrophone: en.chat.composer.systemDefaultMicrophone,
+      systemDefaultMicrophone: "System default",
       useSystemDefaultMicrophoneForCall: "Use System default for this call",
-      systemDefaultCamera: en.chat.composer.systemDefaultCamera,
+      systemDefaultCamera: "System default",
       switchCamera: "Switch camera",
       turnCameraOff: "Turn camera off",
       turnCameraOn: "Turn camera on",
       voiceTranscript: "Voice transcript",
+    },
+    queue: {
+      reviewEdit: "Review edit",
+      reloadBlocked: "Save or cancel your queued message edit before reloading.",
+      connectionPending: "Finishing connection recovery. Try sending again when it is ready.",
+      editSourceChanged:
+        "This queued message changed while you were editing. Your edit is still here. Copy it, cancel the edit, and review the queue before trying again.",
+      editStorageFailed:
+        "Your edit could not be saved in this browser. Keep this tab open and copy your edit before freeing browser storage, then try again.",
+      full: "The message queue is full. Wait for a queued message to send or remove one, then try again.",
+      initialTurnPending:
+        "The initial message is unresolved. Reconnect if needed, then review it before sending another message.",
+      notSent: "Not sent",
+      deliveryUnconfirmed: "Delivery unconfirmed",
+      checkDelivery: "Check delivery",
+      checkDeliveryHelp:
+        "Delivery is unconfirmed. Check delivery looks for the original message without resending it or starting a worker. Inspect the conversation, or copy the retained prompt if you choose to start a separate attempt.",
+      retry: "Retry",
+      retryQueuedMessage: "Retry queued message",
+      discard: "Discard",
+      discardPendingMessage:
+        "Discard this local pending copy. This does not cancel a message already received by the Gateway.",
+      steer: "Steer",
+      steerQueuedMessage: "Steer queued message",
+      removeQueuedMessage: "Remove queued message",
+      reorderQueuedMessage: "Reorder queued message with the arrow keys",
+      reorderUnavailable: "This message holds its place and cannot be reordered",
+      editQueuedMessage: "Edit queued message",
+      moreActions: "More queued message actions",
+      cancelEdit: "Cancel editing and keep the queued message",
+      states: {
+        applyingSettings: "Applying chat settings",
+        blockedByUnconfirmed:
+          "Queue paused. Retry or discard the earlier unconfirmed message in the conversation.",
+        runningCommand: "Running command",
+        waitingForReconnect: "Waiting for reconnect",
+        editing: "Editing",
+        needsReview: "Delivery uncertain",
+      },
+      imageCount: "Image ({count})",
+    },
+    mentions: {
+      menu: "Mention a person",
+      empty: "No people found",
+      truncated: "Keep typing to find more people.",
+      online: "Online",
+      offline: "Offline",
+      unavailable: "Could not load people. Try again.",
+      accessDenied: "Mention access denied. Sign in or contact an admin.",
+      profileUnavailable: "Profile unverified. Reconnect or contact an admin.",
+      rejected: "Mention search rejected. Check access or use another chat.",
+      limit: "You can mention up to 10 people per message.",
+      selectedLabel: "Will notify",
+      selected: "Will notify: {names}",
+      remove: "Remove mention",
+      restoreFailed:
+        "Mention selection could not be restored. Edit this message and select its recipients again.",
+      unsupported:
+        "Human mentions are not available in this mode. Remove the selected mentions or send from a normal chat.",
+    },
+    permissions: {
+      title: "Grant {permissions}",
+      neededOn: "OpenClaw needs access on {node} to continue this action.",
+      openApp:
+        "Grant access in the OpenClaw Mac app on that device: Settings → This Mac → Permissions. Then tell the agent to try again.",
+      ready: "Access is available. You can ask the agent to try again.",
+      following: "Then grant the remaining permissions: {permissions}.",
+      actions: {
+        "not-determined": "Grant {permissions}",
+        denied: "Open System Settings",
+        "restart-required": "Relaunch OpenClaw",
+        "stale-grant": "Open System Settings",
+        "disabled-in-openclaw": "Enable {permissions}",
+      },
+      tryAgain: "Try again",
+      retryMessage: "I granted {permissions}, try again.",
+      states: {
+        "not-determined": "Choose Grant to review the permission request.",
+        denied: "Open System Settings to allow access for OpenClaw.",
+        "restart-required":
+          "If you enabled access in System Settings, relaunch OpenClaw to make it available.",
+        "stale-grant":
+          "macOS may be using a stale permission grant. Open System Settings to review it.",
+        "disabled-in-openclaw": "Choose Enable to review and enable this capability in OpenClaw.",
+      },
+      capabilities: {
+        notifications: "Notifications",
+        accessibility: "Accessibility",
+        eventPosting: "Event Posting",
+        screenRecording: "Screen Recording",
+        microphone: "Microphone",
+        speechRecognition: "Speech Recognition",
+        camera: "Camera",
+        cameraEnabled: "Camera in OpenClaw",
+        location: "Location",
+        computerControl: "Computer Control",
+        canvas: "Canvas",
+        automation: "Automation",
+      },
+    },
+    voice: {
+      asking: "Asking OpenClaw...",
+      replyFailed: "The voice reply was interrupted. Start Talk again to retry.",
+      replyTimedOut:
+        "Talk stopped waiting. The agent's answer will appear in chat when it finishes.",
+      preparing: "Preparing voice session...",
+      connecting: "Connecting voice input...",
+      listening: "Listening...",
+      selectionFailed: "Could not change voices. Restart the call.",
+      selectionTimedOut: "Voice change timed out. Restart the call.",
+      selectionConfirmationFailed: "Voice change unconfirmed.",
+    },
+    sendErrors: {
+      outboxPayloadCopied:
+        "This queued message was copied from another tab. Check the conversation and retry only if it has not arrived.",
+      outboxPayloadCapacity:
+        "Browser attachment storage is full. Try a smaller batch or send/discard queued messages to free space. No new message was sent; your input is retained.",
+      outboxPayloadUnavailable:
+        "Browser attachment storage is unavailable. Allow browser storage and close older dashboard tabs before reconnecting and retrying. No new message was sent.",
+      outboxPayloadMissing:
+        "Queued attachments are missing or unreadable. This may be a stale copy from another tab. Check the conversation, then discard this row and attach the files again if needed. No new message was sent.",
+      activeLeafChanged: "The session switched branches — review and resend.",
     },
   },
 } satisfies TranslationMap;
 
 export const registerChatComposerEnglish = Object.assign(
   () => {
-    const { menu, overrides, ...composer } = enChatComposer.chat.composer;
-    Object.assign(en.chat.composer, composer);
-    Object.assign(en.chat.composer.menu, menu);
-    Object.assign(en.chat.composer.overrides, overrides);
+    Object.assign(en.chat.composer, catalog.chat.composer);
+    Object.assign(en.chat.queue, catalog.chat.queue);
+    Object.assign(en.chat.mentions, catalog.chat.mentions);
+    Object.assign(en.chat.permissions, catalog.chat.permissions);
+    Object.assign(en.chat.voice, catalog.chat.voice);
+    Object.assign(en.chat.sendErrors, catalog.chat.sendErrors);
   },
-  { catalog: enChatComposer },
+  { catalog },
 );

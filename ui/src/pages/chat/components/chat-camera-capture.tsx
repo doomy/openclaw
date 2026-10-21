@@ -1,13 +1,13 @@
 import { createStore, For, onSettled, Show } from "solid-js";
 import { Icon } from "../../../components/solid/icon.tsx";
-import "../../../components/modal-dialog.ts";
 import { registerChatCameraEnglish } from "../../../i18n/locales/en-chat-camera.ts";
+import "../../../components/modal-dialog.ts";
 import { registerChatComposerEnglish } from "../../../i18n/locales/en-chat-composer.ts";
 import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import { listen } from "../../../lib/reactive/listener.ts";
 import { defineSolidBridge, type SolidBridgeElement } from "../../../lib/solid-bridge.ts";
-import "./chat-camera-capture.css";
 import { useNativeAttachmentCapture } from "./chat-attachment-picker-policy.ts";
+import "./chat-camera-capture.css";
 
 registerEnglishCatalog(registerChatComposerEnglish);
 

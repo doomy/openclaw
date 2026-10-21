@@ -4,8 +4,9 @@ import { registerChatSessionEnglish } from "../../../i18n/locales/en-chat-sessio
 import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import type { RealtimeTalkConversationEntry } from "../talk/conversation.ts";
 
-registerEnglishCatalog(registerChatComposerEnglish);
 registerEnglishCatalog(registerChatSessionEnglish);
+
+registerEnglishCatalog(registerChatComposerEnglish);
 
 export function RealtimeTalkConversation(props: {
   assistantName: string;

@@ -5,16 +5,16 @@ import {
   type Overlay,
 } from "../../../components/overlay-lifecycle.ts";
 import { createTextareaTokenAnchor } from "../../../components/textarea-token-anchor.ts";
-import "../../../components/solid/overlay.css";
 import { registerChatComposerEnglish } from "../../../i18n/locales/en-chat-composer.ts";
+import "../../../components/solid/overlay.css";
 import {
   emojiForShortcode,
   EmojiTargetResolver,
   suggestEmoji,
   type EmojiTarget,
 } from "../../../lib/chat/emoji.ts";
-import "../../../styles/chat/emoji-menu.css";
 import { acquireNativeOverlaySurface } from "../../../lib/native-overlay-occlusion.ts";
+import "../../../styles/chat/emoji-menu.css";
 import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import { paneDomId } from "./chat-composer-dom.ts";
 import {
