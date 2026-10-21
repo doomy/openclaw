@@ -39,6 +39,7 @@ export function registerSlackQuestionDelivery(params: {
         if (block.type !== "actions") {
           return [block];
         }
+        // SAFETY: Slack accepted these blocks, and an actions block has ActionsBlock elements.
         const actions = block as ActionsBlock;
         const elements = actions.elements.filter(
           (element) => !isSlackQuestionActionForQuestion(element, params.questionId),
