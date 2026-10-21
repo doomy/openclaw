@@ -57,7 +57,9 @@ describe("matrix plugin", () => {
   });
 
   it("keeps runtime bootstrap and CLI metadata out of setup-only registration", () => {
-    assert.isFunction(entry.setChannelRuntime);
+    if (!entry.setChannelRuntime) {
+      throw new Error("expected Matrix runtime setter");
+    }
     entry.setChannelRuntime({ marker: "runtime" } as never);
     expect(runtimeMocks.setMatrixRuntime).not.toHaveBeenCalled();
   });

@@ -51,7 +51,11 @@ it.each([
     for (let offset = 0; offset < source.length; offset += chunkSize) {
       accumulated += source.slice(offset, offset + chunkSize);
       projection.append(source.slice(offset, offset + chunkSize));
-      expect(projection.text).toBe(plainToolCallTextFilter.transform(accumulated));
+      expect(projection.text).toBe(
+        toolCallRepair.stripPlainTextToolCallBlocks(accumulated, {
+          resolveProtectedRanges: codeRegions.findCodeRegions,
+        }),
+      );
     }
   }
 });
@@ -76,8 +80,8 @@ it.each([
   }
   expect(projection.text).toBe(source.trimEnd());
   const parsedCharacters = spies
-    .flatMap((spy) => spy.mock.calls)
-    .reduce((n, [text]) => n + text.length, 0);
+    .flatMap((spy) => spy.mock.calls.map(([text]) => text))
+    .reduce((n, text) => n + text.length, 0);
   expect(parsedCharacters).toBeLessThan(source.length * 8);
 });
 

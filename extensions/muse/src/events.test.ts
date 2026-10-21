@@ -6,7 +6,10 @@ import { awaitGateBeforeSettlement } from "openclaw/plugin-sdk/test-fixtures";
 import { expect, it } from "vitest";
 import { consumeTurn } from "./events.js";
 
-function item(kind: FoldedItem["kind"], extra: Partial<FoldedItem> = {}): FoldedItem {
+function item(
+  kind: "agentMessage" | "toolCall" | "reminderChild",
+  extra: Partial<FoldedItem> = {},
+): FoldedItem {
   return { itemId: kind, turnId: "turn", kind, status: "inProgress", revision: 1, ...extra };
 }
 

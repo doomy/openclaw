@@ -121,25 +121,42 @@ it.each([
   expect(release).toHaveBeenCalledOnce();
 });
 
-it.each<{ request: Partial<Video.VideoGenerationRequest>; error: string }>`
-  request                                                                                          | error
-  ${{ inputImages: [{ url: "https://example.com/1.png" }, { url: "https://example.com/2.png" }] }} | ${"at most one input image"}
-  ${{ inputVideos: [{ url: "https://example.com/input.mp4" }] }}                                   | ${"does not support video or audio reference"}
-  ${{ inputImages: [{ buffer: Buffer.from("gif"), mimeType: "image/gif" }] }}                      | ${"PNG or JPEG"}
-  ${{ inputImages: [{ buffer: Buffer.alloc(5 * 1024 * 1024 + 1), mimeType: "image/png" }] }}       | ${"no larger than 5 MB"}
-  ${{ providerOptions: { fps: 24 } }}                                                              | ${"fps must be 30 or 60"}
-  ${{ providerOptions: { quality: "draft" } }}                                                     | ${"quality must be"}
-`("Z.AI rejects unsupported input before submission: $error", async ({ request, error }) => {
+it.each<{ request: Partial<Video.VideoGenerationRequest>; error: string }>([
+  {
+    request: {
+      inputImages: [{ url: "https://example.com/1.png" }, { url: "https://example.com/2.png" }],
+    },
+    error: "at most one input image",
+  },
+  {
+    request: { inputVideos: [{ url: "https://example.com/input.mp4" }] },
+    error: "does not support video or audio reference",
+  },
+  {
+    request: { inputImages: [{ buffer: Buffer.from("gif"), mimeType: "image/gif" }] },
+    error: "PNG or JPEG",
+  },
+  {
+    request: {
+      inputImages: [{ buffer: Buffer.alloc(5 * 1024 * 1024 + 1), mimeType: "image/png" }],
+    },
+    error: "no larger than 5 MB",
+  },
+  { request: { providerOptions: { fps: 24 } }, error: "fps must be 30 or 60" },
+  { request: { providerOptions: { quality: "draft" } }, error: "quality must be" },
+])("Z.AI rejects unsupported input before submission: $error", async ({ request, error }) => {
   await expect(generateVideo(request)).rejects.toThrow(error);
   expect(postJsonRequestMock).not.toHaveBeenCalled();
 });
 
-it.each<{ payload: Record<string, unknown>; error: string }>`
-  payload                                                               | error
-  ${{ task_status: "FAIL", error: { message: "Generation rejected" } }} | ${"Generation rejected"}
-  ${{ task_status: "SUCCESS", video_result: [] }}                       | ${"completed without a video URL"}
-  ${{}}                                                                 | ${"missing or unknown task_status"}
-`("Z.AI reports unusable task results: $error", async ({ payload, error }) => {
+it.each<{ payload: Record<string, unknown>; error: string }>([
+  {
+    payload: { task_status: "FAIL", error: { message: "Generation rejected" } },
+    error: "Generation rejected",
+  },
+  { payload: { task_status: "SUCCESS", video_result: [] }, error: "completed without a video URL" },
+  { payload: {}, error: "missing or unknown task_status" },
+])("Z.AI reports unusable task results: $error", async ({ payload, error }) => {
   mockSubmit();
   fetchWithTimeoutMock.mockResolvedValueOnce(Response.json(payload));
   await expect(generateVideo()).rejects.toThrow(error);

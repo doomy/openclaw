@@ -71,13 +71,13 @@ describe("Apple Foundation Models native transport", () => {
     ["overflow", { type: "string" }, '{"value":1e999}'],
   ] as const)(
     "rejects %s before publishing despite replaced native constraints",
-    async (_name, value, text) => {
+    async (name, value, text) => {
       respond({ text });
       const stream = await createAppleFmStream(native)(model, context, {
         responseFormat: schema(value),
         onPayload: () => ({
           messages: context.messages,
-          responseFormat: schema({ type: "number" }),
+          responseFormat: schema({ type: name === "caller pattern" ? "string" : "number" }),
         }),
       });
       const events = [];
