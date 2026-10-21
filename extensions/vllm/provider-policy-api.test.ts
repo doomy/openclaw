@@ -63,21 +63,16 @@ describe("vLLM provider thinking policy", () => {
     expect(profile({ modelId, reasoning: true })).toEqual(binaryProfile);
   });
 
-  it.each(["yk_nemotron-3-super", "yk_deepseek_v4"])(
-    "respects reasoning=false for %s",
-    (modelId) => {
-      expect(profile({ modelId, reasoning: false })).toBeNull();
+  it.each([
+    { modelId: "yk_nemotron-3-super", reasoning: false },
+    { modelId: "yk_deepseek_v4", reasoning: false },
+    { modelId: "Qwen/Qwen3-8B", reasoning: true },
+    {
+      modelId: "Qwen/Qwen3-8B",
+      reasoning: false,
+      compat: { thinkingFormat: "qwen-chat-template" },
     },
-  );
-
-  it("does not flatten unconfigured or non-reasoning vLLM models", () => {
-    expect(profile({ modelId: "Qwen/Qwen3-8B", reasoning: true })).toBeNull();
-    expect(
-      profile({
-        modelId: "Qwen/Qwen3-8B",
-        reasoning: false,
-        compat: { thinkingFormat: "qwen-chat-template" },
-      }),
-    ).toBeNull();
+  ])("returns no profile for %j", (context) => {
+    expect(profile(context)).toBeNull();
   });
 });
