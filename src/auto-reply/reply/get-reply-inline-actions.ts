@@ -563,7 +563,7 @@ export async function handleInlineActions(
     (inlineCommand !== undefined ||
       directiveAck !== undefined ||
       inlineStatusRequested ||
-      command.commandBodyNormalized.trim().startsWith("/"));
+      /^[/!]/.test(command.commandBodyNormalized.trim()));
   if (shouldRunCommandHandlers) {
     const strippedBody = stripStructuralPrefixes(cleanedBody);
     const remainingBodyAfterInlineStatus = (

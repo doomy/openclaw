@@ -680,6 +680,14 @@ describe("control command parsing", () => {
     expect(hasInlineCommandTokens("stop")).toBe(false);
   });
 
+  it.each(["!", "! poll", "!(echo fixture)", "@bot ! poll", "@bot !(echo fixture)"])(
+    "requests authorization for bash input without granting mention bypass: %s",
+    (body) => {
+      expect(shouldComputeCommandAuthorized(body)).toBe(true);
+      expect(hasControlCommand(body)).toBe(false);
+    },
+  );
+
   it("detects spaced syntax only for active registered plugin commands", () => {
     expect(shouldComputeCommandAuthorized("/ pair qr")).toBe(false);
 

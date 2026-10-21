@@ -76,17 +76,31 @@ export function hasInlineCommandTokens(text?: string): boolean {
   return /(?:^|\s)[/!][a-z]/i.test(text ?? "");
 }
 
-/** Returns true when a message may need command authorization metadata. */
-export function shouldComputeCommandAuthorized(
+/** Detects command syntax without broadening it for channel authorization metadata. */
+export function hasCommandSyntax(
   text?: string,
   cfg?: OpenClawConfig,
   options?: CommandNormalizeOptions,
 ): boolean {
-  if (isControlCommandMessage(text, cfg, options) || hasInlineCommandTokens(text)) {
+  if (
+    text?.trimStart().startsWith("!") ||
+    isControlCommandMessage(text, cfg, options) ||
+    hasInlineCommandTokens(text)
+  ) {
     return true;
   }
   const commandBody = text?.match(/(?:^|\s)(\/\s+[a-z][\s\S]*)/i)?.[1];
   // Only active registered commands affect ingress authorization and mention gating.
   // This keeps spaced syntax aligned with canonical `/name` command ownership.
   return commandBody ? matchPluginCommand(commandBody) !== null : false;
+}
+
+/** Returns true when a message may need command authorization metadata. */
+export function shouldComputeCommandAuthorized(
+  text?: string,
+  cfg?: OpenClawConfig,
+  options?: CommandNormalizeOptions,
+): boolean {
+  // A required group mention can precede the bang; execution strips that mention later.
+  return hasCommandSyntax(text, cfg, options) || /(?:^|\s)!/.test(text ?? "");
 }
