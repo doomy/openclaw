@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { Update } from "grammy/types";
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { expect, vi } from "vitest";
@@ -28,32 +27,22 @@ export function telegramMessageUpdate(updateId: number, text: string): TestTeleg
 }
 
 export function createNearLimitTelegramPayload(): { payload: string; sizeBytes: number } {
-  const maxBytes = 1_024 * 1_024;
-  const targetBytes = maxBytes - 4_096;
-  const shell = telegramMessageUpdate(77_777, "");
-  const shellSize = Buffer.byteLength(JSON.stringify(shell), "utf-8");
+  const targetBytes = 1_024 * 1_024 - 4_096;
+  const shellSize = Buffer.byteLength(JSON.stringify(telegramMessageUpdate(77_777, "")), "utf-8");
   const textLength = Math.max(1, targetBytes - shellSize);
   const pattern = "the quick brown fox jumps over the lazy dog ";
-  const repeats = Math.ceil(textLength / pattern.length);
-  const text = pattern.repeat(repeats).slice(0, textLength);
+  const text = pattern.repeat(Math.ceil(textLength / pattern.length)).slice(0, textLength);
   const payload = JSON.stringify(telegramMessageUpdate(77_777, text));
   return { payload, sizeBytes: Buffer.byteLength(payload, "utf-8") };
-}
-
-function sha256(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
 }
 
 export function expectSingleNearLimitUpdate(params: {
   seenUpdates: TestTelegramMessageUpdate[];
   expected: TestTelegramMessageUpdate;
 }) {
-  expect(params.seenUpdates).toHaveLength(1);
-  expect(params.seenUpdates[0]?.update_id).toBe(params.expected.update_id);
-  expect(params.seenUpdates[0]?.message.text.length).toBe(params.expected.message.text.length);
-  expect(sha256(params.seenUpdates[0]?.message.text ?? "")).toBe(
-    sha256(params.expected.message.text),
-  );
+  expect(params.seenUpdates).toMatchObject([
+    { update_id: params.expected.update_id, message: { text: params.expected.message.text } },
+  ]);
 }
 
 type MockCallReader = { mock: { calls: unknown[][] } };
@@ -68,15 +57,11 @@ export function requireMockCall(mock: unknown, index: number, label: string): un
   return call;
 }
 
-function mockMessages(mock: unknown): string[] {
-  return (mock as MockCallReader).mock.calls.map((call) => {
-    const message = call[0];
-    return typeof message === "string" ? message : "";
-  });
-}
-
 export function expectMockMessageContains(mock: unknown, expected: string): void {
-  expect(mockMessages(mock).join("\n")).toContain(expected);
+  const messages = (mock as MockCallReader).mock.calls.map(([message]) =>
+    typeof message === "string" ? message : "",
+  );
+  expect(messages.join("\n")).toContain(expected);
 }
 
 export function expectStatusCall(
@@ -120,36 +105,26 @@ export function expectWebhookBotScopesAborted(createTelegramBotSpy: unknown): vo
   }
 }
 
+function listenerCase(
+  name: string,
+  legacyWebhook?: false | { port: number },
+  publicUrl = "https://callback.example.test/hook",
+) {
+  return {
+    name,
+    legacyWebhook,
+    endpoint: legacyWebhook ? { ...legacyWebhook, host: "127.0.0.1" } : undefined,
+    publicUrl,
+    advertisedUrl: publicUrl || "https://gateway.example.test/hook",
+  };
+}
+
 export const telegramWebhookListenerCases = [
-  {
-    name: "omitted",
-    legacyWebhook: undefined,
-    endpoint: undefined,
-    publicUrl: "https://callback.example.test/hook",
-    advertisedUrl: "https://callback.example.test/hook",
-  },
-  {
-    name: "omitted with public origin fallback",
-    legacyWebhook: undefined,
-    endpoint: undefined,
-    publicUrl: "",
-    advertisedUrl: "https://gateway.example.test/hook",
-  },
-  {
-    name: "explicit",
-    legacyWebhook: { port: 9000 },
-    endpoint: { port: 9000, host: "127.0.0.1" },
-    publicUrl: "https://callback.example.test/hook",
-    advertisedUrl: "https://callback.example.test/hook",
-  },
-  {
-    name: "disabled",
-    legacyWebhook: false,
-    endpoint: undefined,
-    publicUrl: "https://callback.example.test/hook",
-    advertisedUrl: "https://callback.example.test/hook",
-  },
-] as const;
+  listenerCase("omitted"),
+  listenerCase("omitted with public origin fallback", undefined, ""),
+  listenerCase("explicit", { port: 9000 }),
+  listenerCase("disabled", false),
+];
 
 export const telegramReservedGatewayPaths = [
   "/health",
