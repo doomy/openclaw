@@ -151,6 +151,7 @@ async function runWebhookTurn(
   };
   const run = async ({ adapter, turnAdoptionLifecycle }: TurnArgs) => {
     if (mode === "failed") {
+      await turnAdoptionLifecycle?.onSettled?.();
       throw new Error("model turn failed");
     }
     const { delivery } = await adapter.resolveTurn();
@@ -187,6 +188,8 @@ async function runWebhookTurn(
       };
       return;
     }
+    // The agent lifecycle settles before dispatch finalizes its buffered reply.
+    await turnAdoptionLifecycle?.onSettled?.();
     await dispatch();
   };
   const core = {
@@ -282,6 +285,17 @@ async function runWebhookTurn(
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Google Chat typing cleanup through the webhook and HTTP transport", () => {
+  it("keeps the placeholder for a buffered reply after the immediate agent lifecycle settles", async () => {
+    const result = await runWebhookTurn("visible");
+    expect(result.webhookStatus).toBe(200);
+    expect(result.requests).toEqual([
+      { method: "POST", pathname: "/v1/spaces/AAA/messages", text: "_OpenClaw is typing..._" },
+      { method: "PATCH", pathname: `/v1/${typingName}`, text: answer },
+      { method: "POST", pathname: "/v1/spaces/AAA/messages", text: "Second chunk" },
+    ]);
+    expect(result.getMessageText()).toBe(answer);
+  });
+
   it.each(["silent", "failed"] as const)("cleans the placeholder after a %s turn", async (mode) => {
     const result = await runWebhookTurn(mode);
     expect(result.webhookStatus).toBe(mode === "failed" ? 503 : 200);

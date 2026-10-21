@@ -355,8 +355,8 @@ async function processGoogleChatEvent(
           turnAdoptionLifecycle?.onDeferred();
           deferred = true;
         },
-        // Queued replies outlive inbound.run and retain their placeholder until settlement.
-        onSettled: cleanupTypingMessage,
+        // Immediate agent settlement precedes buffered final delivery.
+        onSettled: () => (deferred ? cleanupTypingMessage() : undefined),
       }
     : turnAdoptionLifecycle;
 
