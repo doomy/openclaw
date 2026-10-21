@@ -9,7 +9,7 @@ import { loadSettings } from "../../app/settings.ts";
 import "../../components/file-preview-modal-registration.ts";
 import { registerAgentsHomeEnglish } from "../../i18n/locales/en-agents-home.ts";
 import { normalizeAgentLabel } from "../../lib/agents/display.ts";
-import { formatUiError } from "../../lib/format-error.ts";
+import { formatUiError, UserFacingError } from "../../lib/format-error.ts";
 import { canCallGatewayMethod } from "../../lib/gateway-methods.ts";
 import { loadPluginCatalog } from "../../lib/plugins/index.ts";
 import { useApplication } from "../../lib/reactive/context.ts";
@@ -202,7 +202,7 @@ class ClawsCatalogModel {
           },
           (error: unknown) => {
             if (this.gateway.isCurrent(scope) && revision === this.detailRevision) {
-              reject(new Error(formatUiError(error), { cause: error }));
+              reject(new UserFacingError(formatUiError(error), { cause: error }));
             }
           },
         );

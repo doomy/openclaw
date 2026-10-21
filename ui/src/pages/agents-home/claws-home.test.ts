@@ -4,6 +4,7 @@ import { getQueriesForElement } from "@solidjs/testing-library";
 import { createComponent, createSignal } from "solid-js";
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest";
 import { createDeferredCore } from "../../../../src/shared/deferred.js";
+import { GatewayRequestError } from "../../api/gateway.ts";
 import { pathForClawCatalogEntry } from "../../app-route-paths.ts";
 import { mountSolid } from "../../test-helpers/mount-solid.ts";
 import { flush, waitForSolid } from "../../test-helpers/solid-settle.ts";
@@ -120,7 +121,10 @@ it("retries a failed detail read without replacing the shell or admitting Add ea
   request.mockImplementation((method, params, options) => {
     if (method === "claws.catalog.detail") {
       if (++attempts === 1) {
-        throw new Error("Detail temporarily unavailable");
+        throw new GatewayRequestError({
+          code: "INVALID_REQUEST",
+          message: "Detail temporarily unavailable",
+        });
       }
       return retry.promise;
     }
@@ -132,6 +136,7 @@ it("retries a failed detail read without replacing the shell or admitting Add ea
   await waitForSolid(() =>
     expect(find("[role=alert]")?.textContent).toContain("Detail temporarily unavailable"),
   );
+  expect(find("[role=alert]")?.textContent).not.toContain("INVALID_REQUEST");
   expect(find("[data-claws-confirm] button")).toBe(addButton);
   expect(addButton).toHaveProperty("disabled", true);
   expect(find(".plugin-capabilities")).toBeNull();
