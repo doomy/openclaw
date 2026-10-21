@@ -22,7 +22,7 @@ export function withTeamScaleConfig(
 }
 
 /** Synthetic provider inventory keeps config.get at the observed 152–169 KB scale. */
-export function createTeamScaleConfig() {
+function createTeamScaleConfig() {
   const display = {
     ui: { prefs: {} },
     gateway: { publicOrigin: "https://example.test" },
