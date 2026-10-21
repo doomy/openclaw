@@ -22,6 +22,7 @@ import { registerChatMessageMetadataEnglish } from "../../../i18n/locales/en-cha
 import { registerChatSessionEnglish } from "../../../i18n/locales/en-chat-session.ts";
 import type { ToolCard } from "../../../lib/chat/chat-types.ts";
 import { resolveMessageDisplayMarkdown } from "../../../lib/chat/message-display.ts";
+import { elementRef } from "../../../lib/reactive/element-ref.ts";
 import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import { PluginSurface } from "../../../plugins/control-ui-view.solid.tsx";
 import { assistantMessageIsInterrupted } from "../chat-assistant-reply.ts";
@@ -120,12 +121,15 @@ export function GroupedMessage(props: GroupedMessageProps) {
         <Show when={!state().empty}>
           {(_visible) => {
             const entryRef = messageElements?.forKey(initialMessageKey);
-            onCleanup(() => entryRef?.(undefined));
+            const bindEntry = elementRef((element) => {
+              entryRef?.(element);
+              return () => entryRef?.(undefined);
+            });
             return (
               <>
                 <div
                   class={state().bubbleClasses}
-                  ref={(element) => entryRef?.(element)}
+                  ref={[bindEntry]}
                   data-message-id={props.messageKey}
                   data-file-session-key={props.options.fileLinkSessionKey}
                   data-entry-id={props.options.entryId || undefined}
@@ -203,13 +207,16 @@ export function GroupedMessage(props: GroupedMessageProps) {
     >
       {(conflict) => {
         const entryRef = messageElements?.forKey(initialMessageKey);
-        onCleanup(() => entryRef?.(undefined));
+        const bindEntry = elementRef((element) => {
+          entryRef?.(element);
+          return () => entryRef?.(undefined);
+        });
         return (
           <WorkspaceConflictTranscriptMessage
             conflict={conflict()}
             messageKey={props.messageKey}
             entryId={props.options.entryId}
-            ref={entryRef}
+            ref={bindEntry}
           />
         );
       }}
