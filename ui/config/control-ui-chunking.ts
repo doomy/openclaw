@@ -77,6 +77,9 @@ export function controlUiStableChunkName(id: string): string | undefined {
     case "ui/src/pages/chat/route-entry.ts":
       // Pending New Session previews must render while the Chat route entry waits.
       return "chat-route-entry";
+    case "ui/src/plugins/control-ui-actions.ts":
+      // Plugin contributions also load on New Session, without the chat renderer.
+      return "plugin-actions-runtime";
     case "ui/src/pages/devices/devices-page.tsx":
       return "devices-page";
     case "ui/src/pages/plugins/plugins-page.tsx":
