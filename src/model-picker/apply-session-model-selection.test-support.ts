@@ -5,7 +5,7 @@ import { loadProviderScopedThinkingCatalog } from "../agents/model-catalog.runti
 import { replaceSessionEntry } from "../config/sessions/session-accessor.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import type { AgentDefaultsConfig } from "../config/types.agent-defaults.js";
-import type { ModelDefinitionConfig } from "../config/types.models.js";
+import type { ModelProviderConfig } from "../config/types.models.js";
 import {
   onSessionLifecycleEvent,
   type SessionLifecycleEvent,
@@ -13,7 +13,7 @@ import {
 import { useSessionStoreTempDirs } from "../test-utils/session-state-cleanup.js";
 import type { InternalApplySessionModelSelectionParams } from "./apply-session-model-selection.js";
 
-export const selectionMocks = vi.hoisted(() => {
+const mocks = vi.hoisted(() => {
   const validateRuntime = vi.fn<() => string | undefined>(() => undefined);
   const prepareRuntime = vi.fn<
     typeof import("../agents/model-runtime-choice.js").preparePublishedModelRuntimeChoice
@@ -60,10 +60,11 @@ export const selectionMocks = vi.hoisted(() => {
   };
   return { effects, placementMocks, resetMocks, prepareRuntime, validateRuntime };
 });
+export { mocks as selectionMocks };
 
 // mock-isolation: Runtime eligibility belongs to its owner; these tests exercise selection effects.
 vi.mock("../agents/model-runtime-choice.js", () => ({
-  preparePublishedModelRuntimeChoice: selectionMocks.prepareRuntime,
+  preparePublishedModelRuntimeChoice: mocks.prepareRuntime,
 }));
 // mock-isolation: Supply a deterministic thinking catalog without provider discovery.
 vi.mock("../agents/model-catalog.runtime.js", () => ({
@@ -71,29 +72,27 @@ vi.mock("../agents/model-catalog.runtime.js", () => ({
 }));
 // mock-isolation: Capture system-event effects without publishing into the process event store.
 vi.mock("../infra/system-events.js", () => ({
-  enqueueSystemEvent: selectionMocks.effects.enqueueSystemEvent,
+  enqueueSystemEvent: mocks.effects.enqueueSystemEvent,
 }));
 // mock-isolation: Observe queue refresh effects without dispatching queued follow-up work.
 vi.mock("../auto-reply/reply/queue.js", () => ({
-  refreshQueuedFollowupSession: selectionMocks.effects.refreshQueuedFollowupSession,
+  refreshQueuedFollowupSession: mocks.effects.refreshQueuedFollowupSession,
 }));
 // mock-isolation: Observe patch hooks without invoking installed plugins.
 vi.mock("../gateway/session-patch-hooks.js", () => ({
-  triggerSessionPatchHook: selectionMocks.effects.triggerSessionPatchHook,
+  triggerSessionPatchHook: mocks.effects.triggerSessionPatchHook,
 }));
-// mock-isolation: Preserve real config exports and replace only config writes.
 vi.mock("../config/config.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../config/config.js")>()),
-  mutateConfigFileWithRetry: selectionMocks.effects.mutateConfigFileWithRetry,
+  mutateConfigFileWithRetry: mocks.effects.mutateConfigFileWithRetry,
 }));
-// mock-isolation: Preserve real exports and replace only selection logging.
 vi.mock("../logging/subsystem.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../logging/subsystem.js")>();
   return {
     ...actual,
     createSubsystemLogger: (subsystem: string) =>
       subsystem === "agents/sticky-model-selection"
-        ? { info: selectionMocks.effects.info, warn: selectionMocks.effects.warn }
+        ? { info: mocks.effects.info, warn: mocks.effects.warn }
         : actual.createSubsystemLogger(subsystem),
   };
 });
@@ -101,17 +100,17 @@ vi.mock("../logging/subsystem.js", async (importOriginal) => {
 vi.mock("../gateway/session-worker-placement-context.js", () => ({
   resolveSessionWorkerPlacementContext: () => ({
     workerSessionPlacementService: {
-      getMany: selectionMocks.placementMocks.getMany,
+      getMany: mocks.placementMocks.getMany,
       getManyAsync: async (sessionIds: readonly string[]) =>
-        selectionMocks.placementMocks.getMany(sessionIds),
-      prepareRuntimeRefresh: selectionMocks.placementMocks.prepareRuntimeRefresh,
+        mocks.placementMocks.getMany(sessionIds),
+      prepareRuntimeRefresh: mocks.placementMocks.prepareRuntimeRefresh,
     },
   }),
 }));
 // mock-isolation: Runtime eligibility and worker preparation are tested by their owners.
 vi.mock("../gateway/worker-environments/placement-session-runtime.js", () => ({
   resolveWorkerPlacementCapabilities:
-    selectionMocks.placementMocks.resolveWorkerPlacementSessionRuntimeCapabilities,
+    mocks.placementMocks.resolveWorkerPlacementSessionRuntimeCapabilities,
 }));
 // mock-isolation: Worker preparation is owned elsewhere; selection receives a synthetic lease.
 vi.mock("../gateway/worker-environments/placement-session-runtime-preparation.js", () => ({
@@ -119,7 +118,6 @@ vi.mock("../gateway/worker-environments/placement-session-runtime-preparation.js
 }));
 
 export function useSelectionEffects() {
-  const mocks = selectionMocks;
   const lifecycleEvents: SessionLifecycleEvent[] = [];
   let unsubscribe: () => void;
   beforeEach(() => {
@@ -164,6 +162,13 @@ export function createModelSelectionInputs() {
     { provider: "openai", id: "gpt-4o", name: "GPT-4o", contextTokens: 16_000 },
   ] satisfies ModelCatalogEntry[];
 
+  function createRequest(
+    provider: string,
+    model: string,
+  ): InternalApplySessionModelSelectionParams["request"] {
+    return { provider, model, isDefault: false, runtime: { kind: "unchanged" } };
+  }
+
   function createEntry(overrides: Partial<SessionEntry> = {}): SessionEntry {
     return { sessionId: "session-1", updatedAt: 1, delivery: { kind: "none" }, ...overrides };
   }
@@ -198,12 +203,7 @@ export function createModelSelectionInputs() {
       modelCatalog: catalog,
       thinkingCatalog: catalog,
       canPersistStickyModelSelection: false,
-      request: {
-        provider: "openai",
-        model: "gpt-4o",
-        isDefault: false,
-        runtime: { kind: "unchanged" },
-      },
+      request: createRequest("openai", "gpt-4o"),
       markLiveSwitchPending: true,
       ...overrides,
     } satisfies InternalApplySessionModelSelectionParams;
@@ -215,26 +215,20 @@ export function createModelSelectionInputs() {
     overrides: Partial<InternalApplySessionModelSelectionParams> = {},
     maxTokens = 4096,
   ) {
+    const fixture: ModelProviderConfig = {
+      api: "openai-completions",
+      baseUrl: "https://fixture.invalid/v1",
+      models: modelCatalog.map(({ id, name }) => ({
+        id,
+        name,
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        maxTokens,
+      })),
+    };
     return createParams({
-      cfg: {
-        agents: { defaults },
-        models: {
-          providers: {
-            fixture: {
-              api: "openai-completions",
-              baseUrl: "https://fixture.invalid/v1",
-              models: modelCatalog.map<ModelDefinitionConfig>(({ id, name }) => ({
-                id,
-                name,
-                reasoning: false,
-                input: ["text"],
-                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-                maxTokens,
-              })),
-            },
-          },
-        },
-      },
+      cfg: { agents: { defaults }, models: { providers: { fixture } } },
       defaultProvider: "fixture",
       defaultModel: "primary",
       currentProvider: "fixture",
@@ -242,12 +236,7 @@ export function createModelSelectionInputs() {
       sessionEntry: createEntry({ providerOverride: "fixture", modelOverride: "manual" }),
       modelCatalog,
       thinkingCatalog: modelCatalog,
-      request: {
-        provider: "fixture",
-        model: "manual",
-        isDefault: false,
-        runtime: { kind: "unchanged" },
-      },
+      request: createRequest("fixture", "manual"),
       ...overrides,
     });
   }
