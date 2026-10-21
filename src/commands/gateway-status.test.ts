@@ -90,7 +90,9 @@ const mocks = vi.hoisted(() => {
       message: "Windows LAN firewall diagnostics do not apply.",
       details: [],
     })),
-    probeGateway: vi.fn(async (opts: { url: string }) => successfulProbe(opts.url)),
+    probeGateway: vi.fn<typeof import("../gateway/probe.js").probeGateway>(async ({ url }) =>
+      successfulProbe(url),
+    ),
   };
 });
 
@@ -161,7 +163,7 @@ function createRuntimeCapture() {
 type ProbeGatewayCall = Parameters<typeof import("../gateway/probe.js").probeGateway>[0];
 
 function readProbeCalls(): ProbeGatewayCall[] {
-  return probeGateway.mock.calls.map(([call]) => call as ProbeGatewayCall);
+  return probeGateway.mock.calls.map(([call]) => call);
 }
 
 function requireProbeCall(url: string): ProbeGatewayCall {
@@ -265,7 +267,7 @@ describe("gateway-status command", () => {
           setTimeout(() => resolve([]), 1000);
         }),
     );
-    probeGateway.mockImplementation(async (opts: ProbeGatewayCall) => {
+    probeGateway.mockImplementation(async (opts) => {
       if (opts.url.includes("127.0.0.1")) {
         return mocks.successfulProbe(opts.url);
       }
