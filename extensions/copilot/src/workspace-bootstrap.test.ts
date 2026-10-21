@@ -1,4 +1,3 @@
-// Copilot tests cover workspace bootstrap plugin behavior.
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -7,9 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createCopilotTestHostCapabilities } from "./host-capability.test-support.js";
 import { loadCopilotWorkspaceInstructions } from "./workspace-bootstrap.js";
 
-function makeAttempt(
-  overrides: Partial<AgentHarnessAttemptParams> = {},
-): AgentHarnessAttemptParams {
+function makeAttempt(workspaceDir: string | undefined): AgentHarnessAttemptParams {
   return {
     agentId: "agent-1",
     hostCapabilities: createCopilotTestHostCapabilities(),
@@ -18,13 +15,17 @@ function makeAttempt(
     sessionFile: "session.json",
     sessionId: "session-1",
     timeoutMs: 5000,
-    workspaceDir: "C:\\workspace",
-    ...overrides,
+    workspaceDir,
   } as unknown as AgentHarnessAttemptParams;
 }
 
 describe("loadCopilotWorkspaceInstructions", () => {
   let workspaceDir: string;
+
+  const write = (name: string, content: string) =>
+    writeFile(path.join(workspaceDir, name), content);
+  const load = (source: string | undefined, effectiveWorkspaceDir = source) =>
+    loadCopilotWorkspaceInstructions({ attempt: makeAttempt(source), effectiveWorkspaceDir });
 
   beforeEach(async () => {
     workspaceDir = await mkdtemp(path.join(tmpdir(), "copilot-bootstrap-"));
@@ -35,21 +36,13 @@ describe("loadCopilotWorkspaceInstructions", () => {
   });
 
   it("returns undefined instructions when workspaceDir is missing", async () => {
-    const result = await loadCopilotWorkspaceInstructions({
-      attempt: makeAttempt({ workspaceDir: undefined }),
-      effectiveWorkspaceDir: undefined,
-    });
-    expect(result).toBeUndefined();
+    await expect(load(undefined)).resolves.toBeUndefined();
   });
 
   it("orders persona context and renders the SOUL hint through the workspace boundary", async () => {
-    await writeFile(path.join(workspaceDir, "USER.md"), "USER body");
-    await writeFile(path.join(workspaceDir, "SOUL.md"), "SOUL body");
-    const result = await loadCopilotWorkspaceInstructions({
-      attempt: makeAttempt({ workspaceDir }),
-      effectiveWorkspaceDir: workspaceDir,
-    });
-    const instructions = result ?? "";
+    await write("USER.md", "USER body");
+    await write("SOUL.md", "SOUL body");
+    const instructions = (await load(workspaceDir)) ?? "";
     expect(instructions).toContain("SOUL.md: persona/tone");
     expect(instructions.indexOf("SOUL body")).toBeLessThan(instructions.indexOf("USER body"));
     expect(instructions).toContain(`## ${path.join(workspaceDir, "SOUL.md")}`);
@@ -57,50 +50,27 @@ describe("loadCopilotWorkspaceInstructions", () => {
   });
 
   it("filters AGENTS.md out of the rendered block (SDK loads it natively)", async () => {
-    await writeFile(path.join(workspaceDir, "AGENTS.md"), "Follow AGENTS guidance.");
-    await writeFile(path.join(workspaceDir, "SOUL.md"), "Soul voice goes here.");
-    const result = await loadCopilotWorkspaceInstructions({
-      attempt: makeAttempt({ workspaceDir }),
-      effectiveWorkspaceDir: workspaceDir,
-    });
+    await write("AGENTS.md", "Follow AGENTS guidance.");
+    await write("SOUL.md", "Soul voice goes here.");
+    const result = await load(workspaceDir);
     expect(result).toContain("Soul voice goes here.");
     expect(result).not.toContain("Follow AGENTS guidance.");
     expect(result).toContain("Copilot SDK loads AGENTS.md natively");
   });
 
   it("includes [MISSING] placeholders for files that don't exist (parity with PI/codex)", async () => {
-    await writeFile(path.join(workspaceDir, "AGENTS.md"), "Follow AGENTS guidance.");
-    const result = await loadCopilotWorkspaceInstructions({
-      attempt: makeAttempt({ workspaceDir }),
-      effectiveWorkspaceDir: workspaceDir,
-    });
+    await write("AGENTS.md", "Follow AGENTS guidance.");
+    const result = await load(workspaceDir);
     expect(result).toBeDefined();
     expect(result).toContain("[MISSING] Expected at:");
     expect(result).toContain("SOUL.md");
     expect(result).not.toContain("Follow AGENTS guidance.");
   });
-});
-
-describe("loadCopilotWorkspaceInstructions sandbox remap (PR #86155 [P2] round-9)", () => {
-  let workspaceDir: string;
-  let sandboxDir: string;
-
-  beforeEach(async () => {
-    workspaceDir = await mkdtemp(path.join(tmpdir(), "copilot-bootstrap-host-"));
-    sandboxDir = await mkdtemp(path.join(tmpdir(), "copilot-bootstrap-sbx-"));
-  });
-
-  afterEach(async () => {
-    await rm(workspaceDir, { force: true, recursive: true });
-    await rm(sandboxDir, { force: true, recursive: true });
-  });
 
   it("rewrites rendered context paths from host workspace to sandbox workspace when effective differs", async () => {
-    await writeFile(path.join(workspaceDir, "SOUL.md"), "Soul voice from host.");
-    const result = await loadCopilotWorkspaceInstructions({
-      attempt: makeAttempt({ workspaceDir }),
-      effectiveWorkspaceDir: sandboxDir,
-    });
+    const sandboxDir = path.join(tmpdir(), "copilot-rendered-sandbox");
+    await write("SOUL.md", "Soul voice from host.");
+    const result = await load(workspaceDir, sandboxDir);
     expect(result).toBeDefined();
     expect(result).toContain("Soul voice from host.");
     expect(result).toContain(`## ${path.join(sandboxDir, "SOUL.md")}`);
