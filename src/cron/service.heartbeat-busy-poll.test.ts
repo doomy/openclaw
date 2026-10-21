@@ -503,7 +503,9 @@ describe("native heartbeat busy poll settlement", () => {
     const f = await createPollFixture();
 
     const releaseReply = createDeferred();
+    const replyStarted = createDeferred();
     f.reply.mockImplementationOnce(async () => {
+      replyStarted.resolve();
       await releaseReply.promise;
       return createHeartbeatToolResponsePayload({
         outcome: "progress",
@@ -514,8 +516,8 @@ describe("native heartbeat busy poll settlement", () => {
     const parent = f.cron.run(f.monitor.id, "force");
     try {
       await f.coalesce();
-      // Real preflight I/O can enqueue timers after coalescing has advanced the fake clock.
-      await vi.waitFor(() => expect(f.reply).toHaveBeenCalledOnce(), { timeout: 10_000 });
+      await replyStarted.promise;
+      expect(f.reply).toHaveBeenCalledOnce();
       const waiterSignal = f.request.mock.calls[0]?.[1].abortSignal;
       expect(waiterSignal?.aborted).toBe(false);
       await vi.advanceTimersByTimeAsync(600_000);
