@@ -1,5 +1,5 @@
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
-import { createMemo, createSignal, createStore, For, onSettled, Show, snapshot } from "solid-js";
+import { createMemo, createSignal, createStore, For, onSettled, Show } from "solid-js";
 import type {
   McpAppMentionResult,
   McpAppResourceLink,
@@ -61,7 +61,7 @@ export function McpAppResources(props: McpAppResourcesProps) {
     searched: boolean;
     error: string | null;
   };
-  // A new scope retires results while preserving the user's disclosure and query.
+  // Reset results on scope changes; resource snapshots are replaced whole and stay plain.
   const [view, setView] = createStore<ResourceView>(
     (draft) => {
       requestScope();
@@ -80,6 +80,7 @@ export function McpAppResources(props: McpAppResourcesProps) {
       searched: false,
       error: null,
     },
+    { shallow: true },
   );
   const servers = createMemo(() => catalog().servers.filter((server) => server.mentionTool));
   const [serverName, setServerName] = createSignal<string>((previous = "") => {
@@ -156,7 +157,7 @@ export function McpAppResources(props: McpAppResourcesProps) {
           sessionKey: props.sessionKey,
           agentId: props.agentId,
           serverName: serverName(),
-          resource: snapshot(resource),
+          resource,
         },
       }),
     );
