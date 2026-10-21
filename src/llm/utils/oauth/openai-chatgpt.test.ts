@@ -1,10 +1,15 @@
-// OpenAI ChatGPT OAuth tests cover login, token refresh, and auth persistence.
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { OAuthLoginCallbacks } from "./types.js";
 
 type LoginOpenAICodexOAuth =
   typeof import("../../../plugins/provider-openai-chatgpt-oauth.js").loginOpenAICodexOAuth;
 
-const mocks = vi.hoisted(() => ({
+const {
+  loginOpenAICodexOAuth,
+  loadActivatedBundledPluginPublicSurfaceModuleSync,
+  refreshOpenAICodexToken,
+  refreshProviderOAuthCredentialWithPlugin,
+} = vi.hoisted(() => ({
   loginOpenAICodexOAuth: vi.fn<LoginOpenAICodexOAuth>(),
   loadActivatedBundledPluginPublicSurfaceModuleSync: vi.fn(),
   refreshOpenAICodexToken: vi.fn(),
@@ -12,33 +17,34 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../plugins/provider-openai-chatgpt-oauth.js", () => ({
-  loginOpenAICodexOAuth: mocks.loginOpenAICodexOAuth,
+  loginOpenAICodexOAuth,
 }));
 
 vi.mock("../../../plugins/provider-runtime.runtime.js", () => ({
-  refreshProviderOAuthCredentialWithPlugin: mocks.refreshProviderOAuthCredentialWithPlugin,
+  refreshProviderOAuthCredentialWithPlugin,
 }));
 
 vi.mock("../../../plugin-sdk/facade-runtime.js", () => ({
-  loadActivatedBundledPluginPublicSurfaceModuleSync:
-    mocks.loadActivatedBundledPluginPublicSurfaceModuleSync,
+  loadActivatedBundledPluginPublicSurfaceModuleSync,
 }));
 
 import { openaiCodexOAuthProvider } from "./openai-chatgpt.js";
 
-type OpenAIProviderLoginCallbacks = Omit<
-  Parameters<typeof openaiCodexOAuthProvider.login>[0],
-  "onAuth"
-> & {
-  onAuth: (
-    info: Parameters<Parameters<typeof openaiCodexOAuthProvider.login>[0]["onAuth"]>[0],
-  ) => Promise<void> | void;
-};
+async function loginThroughOpenAIProvider(callbacks: Partial<OAuthLoginCallbacks> = {}) {
+  return await openaiCodexOAuthProvider.login({
+    onAuth: vi.fn(),
+    onPrompt: vi.fn(async () => "manual-code"),
+    ...callbacks,
+  });
+}
 
-async function loginThroughOpenAIProvider(callbacks: OpenAIProviderLoginCallbacks) {
-  return await openaiCodexOAuthProvider.login(
-    callbacks as Parameters<typeof openaiCodexOAuthProvider.login>[0],
-  );
+async function expectCancelled(
+  controller: AbortController,
+  callbacks: Partial<OAuthLoginCallbacks> = {},
+) {
+  await expect(
+    loginThroughOpenAIProvider({ ...callbacks, signal: controller.signal }),
+  ).rejects.toThrow("Login cancelled");
 }
 
 async function refreshThroughOpenAIProvider(refreshToken: string) {
@@ -49,23 +55,18 @@ async function refreshThroughOpenAIProvider(refreshToken: string) {
   });
 }
 
-function createCredential() {
-  return {
-    type: "oauth" as const,
-    provider: "openai",
-    access: "access-token",
-    refresh: "refresh-token",
-    expires: 1_700_000_000_000,
-    accountId: "acct_123",
-  };
-}
+const tokens = {
+  access: "access-token",
+  refresh: "refresh-token",
+  expires: 1_700_000_000_000,
+  accountId: "acct_123",
+};
+const createCredential = () => ({ type: "oauth" as const, provider: "openai", ...tokens });
 
 describe("OpenAI Codex OAuth compatibility provider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.loadActivatedBundledPluginPublicSurfaceModuleSync.mockReturnValue({
-      refreshOpenAICodexToken: mocks.refreshOpenAICodexToken,
-    });
+    loadActivatedBundledPluginPublicSurfaceModuleSync.mockReturnValue({ refreshOpenAICodexToken });
   });
 
   it("waits for the auth URL to render before requesting manual input", async () => {
@@ -75,7 +76,7 @@ describe("OpenAI Codex OAuth compatibility provider", () => {
     });
     const onAuth = vi.fn(async () => authRendered);
     const onPrompt = vi.fn(async () => "manual-code");
-    mocks.loginOpenAICodexOAuth.mockImplementationOnce(async (params) => {
+    loginOpenAICodexOAuth.mockImplementationOnce(async (params) => {
       await params.openUrl("https://auth.openai.com/oauth/authorize?state=abc");
       await params.prompter.text({ message: "Paste code" });
       return createCredential();
@@ -92,7 +93,7 @@ describe("OpenAI Codex OAuth compatibility provider", () => {
 
   it("passes legacy manual input through so it starts alongside browser auth", async () => {
     const onManualCodeInput = vi.fn(async () => "manual-code");
-    mocks.loginOpenAICodexOAuth.mockImplementationOnce(async (params) => {
+    loginOpenAICodexOAuth.mockImplementationOnce(async (params) => {
       await expect(params.onManualCodeInput?.()).resolves.toBe("manual-code");
       await expect(params.prompter.text({ message: "Fallback code" })).resolves.toBe(
         "fallback-code",
@@ -102,7 +103,6 @@ describe("OpenAI Codex OAuth compatibility provider", () => {
 
     await expect(
       loginThroughOpenAIProvider({
-        onAuth: vi.fn(),
         onPrompt: vi.fn(async () => "fallback-code"),
         onManualCodeInput,
       }),
@@ -115,81 +115,51 @@ describe("OpenAI Codex OAuth compatibility provider", () => {
     const controller = new AbortController();
     controller.abort();
 
-    await expect(
-      loginThroughOpenAIProvider({
-        onAuth: vi.fn(),
-        onPrompt: vi.fn(async () => "manual-code"),
-        signal: controller.signal,
-      }),
-    ).rejects.toThrow("Login cancelled");
-    expect(mocks.loginOpenAICodexOAuth).not.toHaveBeenCalled();
+    await expectCancelled(controller);
+    expect(loginOpenAICodexOAuth).not.toHaveBeenCalled();
   });
 
   it("passes legacy cancellation into the provider auth hook", async () => {
     const controller = new AbortController();
-    mocks.loginOpenAICodexOAuth.mockImplementationOnce(async (params) => {
+    loginOpenAICodexOAuth.mockImplementationOnce(async (params) => {
       expect(params.signal).toBe(controller.signal);
       controller.abort();
       await expect(params.onManualCodeInput?.()).rejects.toThrow("Login cancelled");
       return createCredential();
     });
 
-    await expect(
-      loginThroughOpenAIProvider({
-        onAuth: vi.fn(),
-        onPrompt: vi.fn(async () => "manual-code"),
-        onManualCodeInput: vi.fn(async () => "manual-code"),
-        signal: controller.signal,
-      }),
-    ).rejects.toThrow("Login cancelled");
+    await expectCancelled(controller, { onManualCodeInput: vi.fn(async () => "manual-code") });
   });
 
   it("does not return completed credentials after login cancellation", async () => {
     const controller = new AbortController();
-    mocks.loginOpenAICodexOAuth.mockImplementationOnce(() => {
+    loginOpenAICodexOAuth.mockImplementationOnce(() => {
       queueMicrotask(() => controller.abort());
       return Promise.resolve(createCredential());
     });
 
-    await expect(
-      loginThroughOpenAIProvider({
-        onAuth: vi.fn(),
-        onPrompt: vi.fn(async () => "manual-code"),
-        signal: controller.signal,
-      }),
-    ).rejects.toThrow("Login cancelled");
+    await expectCancelled(controller);
   });
 
   it("honors legacy login cancellation before invoking the auth callback", async () => {
     const controller = new AbortController();
     const onAuth = vi.fn();
-    mocks.loginOpenAICodexOAuth.mockImplementationOnce(async (params) => {
+    loginOpenAICodexOAuth.mockImplementationOnce(async (params) => {
       controller.abort();
       await params.openUrl("https://auth.openai.com/oauth/authorize?state=abc");
       return createCredential();
     });
 
-    await expect(
-      loginThroughOpenAIProvider({
-        onAuth,
-        onPrompt: vi.fn(async () => "manual-code"),
-        signal: controller.signal,
-      }),
-    ).rejects.toThrow("Login cancelled");
+    await expectCancelled(controller, { onAuth });
     expect(onAuth).not.toHaveBeenCalled();
   });
 
   it("refreshes through the provider runtime hook without returning auth-profile fields", async () => {
-    mocks.refreshProviderOAuthCredentialWithPlugin.mockResolvedValueOnce(createCredential());
+    refreshProviderOAuthCredentialWithPlugin.mockResolvedValueOnce(createCredential());
 
-    await expect(refreshThroughOpenAIProvider("old-refresh-token")).resolves.toEqual({
-      access: "access-token",
-      refresh: "refresh-token",
-      expires: 1_700_000_000_000,
-      accountId: "acct_123",
-    });
+    await expect(refreshThroughOpenAIProvider("old-refresh-token")).resolves.toEqual(tokens);
 
-    expect(mocks.refreshProviderOAuthCredentialWithPlugin).toHaveBeenCalledWith({
+    expect(refreshProviderOAuthCredentialWithPlugin).toHaveBeenCalledWith({
       provider: "openai",
       context: {
         type: "oauth",
@@ -199,7 +169,7 @@ describe("OpenAI Codex OAuth compatibility provider", () => {
         expires: 0,
       },
     });
-    expect(mocks.loadActivatedBundledPluginPublicSurfaceModuleSync).not.toHaveBeenCalled();
+    expect(loadActivatedBundledPluginPublicSurfaceModuleSync).not.toHaveBeenCalled();
   });
 
   it("falls back to the OpenAI plugin facade when provider runtime refresh is unavailable", async () => {
@@ -209,27 +179,27 @@ describe("OpenAI Codex OAuth compatibility provider", () => {
       expires: 1_700_000_000_000,
       accountId: "acct_facade",
     };
-    mocks.refreshProviderOAuthCredentialWithPlugin.mockResolvedValueOnce(null);
-    mocks.refreshOpenAICodexToken.mockResolvedValueOnce(credential);
+    refreshProviderOAuthCredentialWithPlugin.mockResolvedValueOnce(null);
+    refreshOpenAICodexToken.mockResolvedValueOnce(credential);
 
     await expect(refreshThroughOpenAIProvider("old-refresh-token")).resolves.toEqual(credential);
 
-    expect(mocks.loadActivatedBundledPluginPublicSurfaceModuleSync).toHaveBeenCalledWith({
+    expect(loadActivatedBundledPluginPublicSurfaceModuleSync).toHaveBeenCalledWith({
       dirName: "openai",
       artifactBasename: "api.js",
     });
-    expect(mocks.refreshOpenAICodexToken).toHaveBeenCalledWith("old-refresh-token");
+    expect(refreshOpenAICodexToken).toHaveBeenCalledWith("old-refresh-token");
   });
 
   it("preserves activated-facade failures when refresh fallback is disabled", async () => {
-    mocks.refreshProviderOAuthCredentialWithPlugin.mockResolvedValueOnce(null);
-    mocks.loadActivatedBundledPluginPublicSurfaceModuleSync.mockImplementationOnce(() => {
+    refreshProviderOAuthCredentialWithPlugin.mockResolvedValueOnce(null);
+    loadActivatedBundledPluginPublicSurfaceModuleSync.mockImplementationOnce(() => {
       throw new Error("plugin runtime is not activated");
     });
 
     await expect(refreshThroughOpenAIProvider("old-refresh-token")).rejects.toThrow(
       "plugin runtime is not activated",
     );
-    expect(mocks.refreshOpenAICodexToken).not.toHaveBeenCalled();
+    expect(refreshOpenAICodexToken).not.toHaveBeenCalled();
   });
 });
