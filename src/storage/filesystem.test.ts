@@ -1,12 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { buffer } from "node:stream/consumers";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, assert, expect, it } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { filesystemStorageProvider } from "./filesystem.js";
 import type { StorageBackend } from "./types.js";
 
-let directory: string;
 const backends: StorageBackend[] = [];
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
   afterEach(async () => {
@@ -17,24 +16,19 @@ const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
     }
   }),
 );
-beforeEach(() => {
-  directory = tempDirs.make("openclaw-storage-filesystem-");
-});
 
 async function* bytes(value: string) {
   yield Buffer.from(value);
 }
 
-async function openBackend(root = directory) {
+async function openBackend(root = tempDirs.make("openclaw-storage-filesystem-")) {
   const backend = await filesystemStorageProvider.open({
     locationName: "archive",
     settings: { path: root },
-    resolveSecret: async () => {
-      throw new Error("Filesystem storage has no credentials");
-    },
+    resolveSecret: () => Promise.reject(new Error("Filesystem storage has no credentials")),
   });
   backends.push(backend);
-  return backend;
+  return { backend, directory: root };
 }
 
 async function listKeys(backend: StorageBackend, prefix: string) {
@@ -46,21 +40,19 @@ async function listKeys(backend: StorageBackend, prefix: string) {
 }
 
 it("publishes once without clobbering bytes or leaving staging files", async () => {
-  const backend = await openBackend();
-  await expect(
-    backend.putObject("archive.bin", bytes("original"), { sizeBytes: 8 }),
-  ).resolves.toEqual({ sizeBytes: 8 });
-  await expect(backend.putObject("archive.bin", bytes("replacement"), {})).rejects.toThrow();
-  const stream = await backend.getObject("archive.bin");
-  if (!stream) {
-    throw new Error("Storage object is missing");
-  }
+  const { backend, directory } = await openBackend();
+  expect(await backend.putObject("a", bytes("original"), { sizeBytes: 8 })).toEqual({
+    sizeBytes: 8,
+  });
+  await expect(backend.putObject("a", bytes("replacement"), {})).rejects.toThrow();
+  const stream = await backend.getObject("a");
+  assert(stream, "Storage object is missing");
   expect(await buffer(stream)).toEqual(Buffer.from("original"));
-  await expect(fs.readdir(directory)).resolves.toEqual(["archive.bin"]);
+  await expect(fs.readdir(directory)).resolves.toEqual(["a"]);
 });
 
 it("lists prefixes, reports metadata and space, and deletes idempotently", async () => {
-  const backend = await openBackend();
+  const { backend, directory } = await openBackend();
   const first = "backups/day-1/a.bin",
     second = "backups/day-2/b.bin";
   for (const key of [first, second, "other.bin"]) {
@@ -75,11 +67,8 @@ it("lists prefixes, reports metadata and space, and deletes idempotently", async
   ] as const) {
     expect(await listKeys(backend, prefix)).toEqual(expected);
   }
-  await expect(backend.statObject(second)).resolves.toEqual({
-    key: second,
-    sizeBytes: 6,
-    modifiedAt: expect.any(Number),
-  });
+  const metadata = await backend.statObject(second);
+  expect(metadata).toEqual({ key: second, sizeBytes: 6, modifiedAt: expect.any(Number) });
   const capacity = await backend.probe();
   expect(capacity.totalBytes).toBeGreaterThan(0);
   expect(capacity.freeBytes).toBeGreaterThanOrEqual(0);
@@ -92,13 +81,14 @@ it("lists prefixes, reports metadata and space, and deletes idempotently", async
 });
 
 it.each([3, 10])("refuses declared size %s before publication", async (sizeBytes) => {
-  const backend = await openBackend();
+  const { backend, directory } = await openBackend();
   await expect(backend.putObject("bad.bin", bytes("value"), { sizeBytes })).rejects.toThrow();
   await expect(backend.getObject("bad.bin")).resolves.toBeUndefined();
   await expect(fs.readdir(directory)).resolves.toEqual([]);
 });
 
 it("requires an existing absolute directory without creating a missing root", async () => {
+  const directory = tempDirs.make("openclaw-storage-filesystem-");
   await expect(openBackend("relative-storage")).rejects.toThrow(/absolute/u);
   await expect(openBackend(path.join(directory, "missing"))).rejects.toThrow();
   await fs.writeFile(path.join(directory, "file"), "not a directory");
@@ -107,9 +97,10 @@ it("requires an existing absolute directory without creating a missing root", as
 });
 
 it("rejects a replaced root during streaming without filling its replacement", async () => {
+  const directory = tempDirs.make("openclaw-storage-filesystem-");
   const storageRoot = path.join(directory, "mounted");
   await fs.mkdir(storageRoot);
-  const backend = await openBackend(storageRoot);
+  const { backend } = await openBackend(storageRoot);
   async function* replaceRootWhileStreaming() {
     yield Buffer.from("first chunk");
     await fs.rename(storageRoot, path.join(directory, "unplugged"));
@@ -120,17 +111,15 @@ it("rejects a replaced root during streaming without filling its replacement", a
   await expect(backend.putObject("next.bin", bytes("no"), {})).rejects.toThrow();
   await expect(backend.probe()).rejects.toThrow();
   await expect(fs.readdir(storageRoot)).resolves.toEqual([]);
-  await fs.writeFile(path.join(storageRoot, "replacement.bin"), "preserved");
-  await expect(backend.deleteObject("replacement.bin")).rejects.toThrow();
-  await expect(fs.readFile(path.join(storageRoot, "replacement.bin"), "utf8")).resolves.toBe(
-    "preserved",
-  );
+  await fs.writeFile(path.join(storageRoot, "kept"), "preserved");
+  await expect(backend.deleteObject("kept")).rejects.toThrow();
+  await expect(fs.readFile(path.join(storageRoot, "kept"), "utf8")).resolves.toBe("preserved");
 });
 
 it("refuses symlink escapes and excludes them from listings", async () => {
   const outside = tempDirs.make("openclaw-storage-outside-");
   await fs.writeFile(path.join(outside, "private.bin"), "outside");
-  const backend = await openBackend();
+  const { backend, directory } = await openBackend();
   await fs.symlink(outside, path.join(directory, "escape"), "junction");
   await expect(backend.putObject("escape/new.bin", bytes("no"), {})).rejects.toThrow();
   await expect(backend.getObject("escape/private.bin")).rejects.toThrow();
