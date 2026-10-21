@@ -1,4 +1,4 @@
-import { Show, createMemo, onSettled, type Element } from "solid-js";
+import { Show, createMemo, merge, onSettled, type Element } from "solid-js";
 import { isIncognitoSessionKey } from "../../../../../src/shared/incognito-session-key.js";
 import { beginNativeWindowDrag } from "../../../app/native-window-drag.ts";
 import { NAV_DRAWER_TOGGLE_REGISTRATION } from "../../../app/navigation-surface.ts";
@@ -87,17 +87,18 @@ export function ChatPaneHeader(props: ChatPaneHeaderProps) {
     const chat = createMemo(() => {
       const source = props.detailsControl?.chat;
       return source
-        ? {
-            ...source,
-            environment: {
-              ...source.environment,
-              placement: detailsProps.placement,
-              onOpenMachine:
-                props.detailsControl?.nativePresentation === "mobile"
-                  ? detailsProps.onOpenMachine
-                  : undefined,
-            },
-          }
+        ? merge(source, {
+            environment: merge(
+              () => source.environment ?? {},
+              () => ({
+                placement: detailsProps.placement,
+                onOpenMachine:
+                  props.detailsControl?.nativePresentation === "mobile"
+                    ? detailsProps.onOpenMachine
+                    : undefined,
+              }),
+            ),
+          })
         : undefined;
     });
     return (
