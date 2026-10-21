@@ -3,7 +3,7 @@ import {
   renderMermaidSvg,
   type MermaidTheme,
 } from "@openclaw/mermaid-renderer";
-import type { JSX } from "@solidjs/web";
+import type { JSX as SolidJSX } from "@solidjs/web";
 import {
   createEffect,
   createMemo,
@@ -253,7 +253,7 @@ function MermaidContent(props: MermaidProps, host: MermaidElement) {
     );
   }
 
-  function View(viewProps: { status?: RenderStatus; children?: JSX.Element }) {
+  function View(viewProps: { status?: RenderStatus; children?: SolidJSX.Element }) {
     const sourceVisible = () => showSource() || viewProps.status !== undefined;
     return (
       <>
