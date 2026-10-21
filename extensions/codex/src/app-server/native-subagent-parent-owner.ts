@@ -55,7 +55,10 @@ type ParentDependencies = {
   assertAdmissionCurrent?: (params: NativeParentRegistration) => void;
   runtime: Pick<NativeSubagentMonitorRuntime, "captureAgentHarnessCompletionCustody">;
   assignments: Pick<CodexNativeSubagentAssignmentInventory, "restore" | "drain">;
-  submissions: Pick<CodexNativeSubagentSubmissionOwner, "restore" | "bind" | "drain">;
+  submissions: Pick<
+    CodexNativeSubagentSubmissionOwner,
+    "restore" | "bind" | "drain" | "observeHookAcknowledgement" | "settleWrites"
+  >;
   closes: Pick<CodexNativeSubagentCloseOwner, "bind" | "prune" | "settlements">;
   deliverDetached: (state: ParentState) => void;
   drainAdmissions: (state: ParentState, owner: ParentOwner, turnId: string) => void;
@@ -269,6 +272,20 @@ export async function registerNativeSubagentParent(
   let settlement: Promise<void> | undefined;
   return {
     ready,
+    observeSubmissionAcknowledgement: async (receipt, assertCurrent) => {
+      assertCurrent();
+      if (
+        !registered ||
+        !isCurrent() ||
+        registeredState.owners.get(ownerKey) !== owner ||
+        (owner.turnId && owner.turnId !== receipt.parentTurnId) ||
+        (receipt.senderThreadId && receipt.senderThreadId !== parentThreadId)
+      ) {
+        throw new Error("Codex native submission parent registration is no longer current");
+      }
+      dependencies.submissions.observeHookAcknowledgement(registeredState, receipt, owner);
+      await dependencies.submissions.settleWrites(registeredState);
+    },
     bindTurn: (turnIdInput, mapping) => {
       const turnId = turnIdInput.trim();
       if (!turnId || dependencies.states.get(parentThreadId) !== registeredState) {
