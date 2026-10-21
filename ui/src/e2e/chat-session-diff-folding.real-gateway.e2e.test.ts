@@ -4,6 +4,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Locator } from "playwright";
 import { expect, it } from "vitest";
+import type {
+  RequestFrame,
+  ResponseFrame,
+  SessionsDiffParams,
+  SessionsDiffResult,
+} from "../../../packages/gateway-protocol/src/index.js";
 import { ensureGatewayOwnerProfile } from "../../../src/state/user-profiles.js";
 import {
   createOpenClawTestInstance,
@@ -166,6 +172,35 @@ suite.define(() => {
     await suite.withPage(
       { viewport: { width: 1440, height: 950 }, locale: "en-US", serviceWorkers: "block" },
       async ({ page }) => {
+        let sentDiffRead = 0;
+        let completedDiffRead = 0;
+        page.on("websocket", (socket) => {
+          const requests = new Map<string, number>();
+          socket.on("framesent", ({ payload }) => {
+            const frame = JSON.parse(payload.toString()) as RequestFrame;
+            const params = frame.params as SessionsDiffParams | undefined;
+            if (
+              frame.type === "req" &&
+              frame.method === "sessions.diff" &&
+              params?.sessionKey === key &&
+              (params.scope ?? "all") === "all" &&
+              params.summaryOnly !== true
+            ) {
+              requests.set(frame.id, ++sentDiffRead);
+            }
+          });
+          socket.on("framereceived", ({ payload }) => {
+            const frame = JSON.parse(payload.toString()) as ResponseFrame;
+            const sequence = requests.get(frame.id);
+            if (frame.type !== "res" || sequence === undefined) {
+              return;
+            }
+            requests.delete(frame.id);
+            if (frame.ok && (frame.payload as SessionsDiffResult | undefined)?.computing !== true) {
+              completedDiffRead = Math.max(completedDiffRead, sequence);
+            }
+          });
+        });
         await page.addInitScript(() => {
           localStorage.setItem(
             "openclaw:control-ui:community-invite:v2",
@@ -191,6 +226,13 @@ suite.define(() => {
         await activateChatHeaderPanelAction(page, "Show session changes");
         await focusChatSidePanel(page);
         const panel = page.locator(".session-diff");
+        const refresh = async () => {
+          const previousRead = sentDiffRead;
+          await panel.getByRole("button", { name: "Refresh changes" }).click();
+          // Idle can precede request setup; observe this refresh's full result first.
+          await expect.poll(() => completedDiffRead).toBeGreaterThan(previousRead);
+          await expect.poll(() => panel.getAttribute("aria-busy")).toBe("false");
+        };
         const file = panel.locator(".session-diff__file").filter({ hasText: "example.ts" });
         const fileToggle = file.locator(".session-diff__file-toggle");
         await fileToggle.waitFor();
@@ -270,8 +312,7 @@ suite.define(() => {
         );
         await button("Collapse code at line 3").click();
         expect(await placeholder.count()).toBe(1);
-        await panel.getByRole("button", { name: "Refresh changes" }).click();
-        await expect.poll(() => panel.getAttribute("aria-busy")).toBe("false");
+        await refresh();
         // Refresh closes file cards; reopening must retain this source's code-fold state.
         expect(await fileToggle.getAttribute("aria-expanded")).toBe("false");
         await fileToggle.click();
@@ -293,8 +334,7 @@ suite.define(() => {
           after.join("\n").replace('"empty"', '"nothing"') + "\n",
         );
         const refreshStart = await page.evaluate(() => performance.now());
-        await panel.getByRole("button", { name: "Refresh changes" }).click();
-        await expect.poll(() => panel.getAttribute("aria-busy")).toBe("false");
+        await refresh();
         expect(await fileToggle.getAttribute("aria-expanded")).toBe("false");
         await fileToggle.click();
         await file.getByText('return "nothing";', { exact: true }).waitFor();
