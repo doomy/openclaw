@@ -65,7 +65,10 @@ async function interruptRun(failure: (signal: AbortSignal) => Error) {
     const signal = await started.promise;
     const signalHandler = process
       .listeners("SIGINT")
-      .find((listener) => !listenersBefore.get("SIGINT")?.has(listener));
+      .find(
+        (listener) =>
+          ![...(listenersBefore.get("SIGINT") ?? [])].some((previous) => previous === listener),
+      );
     expect(signalHandler).toBeDefined();
     signalHandler?.("SIGINT");
     await command;

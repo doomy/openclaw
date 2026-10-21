@@ -8,7 +8,7 @@ import {
 import { clearLiveCatalogCacheForTests } from "openclaw/plugin-sdk/provider-catalog-live-runtime";
 import { buildManifestModelProviderConfig } from "openclaw/plugin-sdk/provider-catalog-shared";
 import { buildOpenAICompletionsParams } from "openclaw/plugin-sdk/provider-transport-runtime";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, assert, expect, it, vi } from "vitest";
 import plugin from "./index.js";
 import manifest from "./openclaw.plugin.json" with { type: "json" };
 
@@ -58,7 +58,9 @@ function capturePayload(
   });
   void wrappedStreamFn?.(model, context, { onPayload });
   expect(onPayload).toHaveBeenCalledOnce();
-  return onPayload.mock.calls[0][0] as Record<string, unknown>;
+  const call = onPayload.mock.calls[0];
+  assert(call, "Expected captured Cohere payload");
+  return call[0] as Record<string, unknown>;
 }
 
 afterEach(() => {

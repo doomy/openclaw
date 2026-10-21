@@ -1,7 +1,7 @@
 import * as providerHttp from "openclaw/plugin-sdk/provider-http";
 import { expectExplicitVideoGenerationCapabilities } from "openclaw/plugin-sdk/provider-test-contracts";
 import { installPinnedHostnameTestHooks } from "openclaw/plugin-sdk/test-media-understanding";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest";
 import * as vydra from "./provider-test-helpers.js";
 
 describe("vydra video-generation provider", () => {
@@ -88,7 +88,9 @@ describe("vydra video-generation provider", () => {
       auditContext: "vydra-media-download",
     });
     for (const index of [0, 1, 2]) {
-      const headers = new Headers((fetchMock.mock.calls[index][1] as RequestInit).headers);
+      const call = fetchMock.mock.calls[index];
+      assert(call, `Expected fetch call ${index}`);
+      const headers = new Headers((call[1] as RequestInit).headers);
       expect(headers.get("authorization")).toBe("Bearer vydra-test-key");
       expect(headers.get("x-vydra-policy")).toBe("video-policy");
     }

@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { showInputDialog } from "../../components/input-dialog.ts";
 import { t } from "../../i18n/index.ts";
@@ -34,7 +34,9 @@ async function openAlias(
   const controller = createDevicesDialogs(host);
   const pending = controller.editAlias(device);
   await vi.waitFor(() => expect(showInputDialog).toHaveBeenCalledOnce());
-  const [options] = vi.mocked(showInputDialog).mock.calls[0];
+  const call = vi.mocked(showInputDialog).mock.calls[0];
+  assert(call, "Expected alias dialog");
+  const [options] = call;
   if (!options.submit) {
     throw new Error("Expected alias dialog submit");
   }

@@ -5,7 +5,10 @@ import { describe, expect, it, vi } from "vitest";
 import plugin from "./index.js";
 import type { OnePasswordBroker } from "./src/broker.js";
 
-function register(current: () => OpenClawConfig = () => ({}), pluginConfig?: unknown) {
+function register(
+  current: () => OpenClawConfig = () => ({}),
+  pluginConfig?: Record<string, unknown>,
+) {
   const store = {
     register: vi.fn(async () => undefined),
     lookup: vi.fn(async () => undefined),

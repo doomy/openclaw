@@ -1,6 +1,6 @@
 import { bufferedOversizedJsonResponse as oversizedJsonResponse } from "openclaw/plugin-sdk/test-fixtures";
 import { installPinnedHostnameTestHooks } from "openclaw/plugin-sdk/test-media-understanding";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest";
 import * as vydra from "./provider-test-helpers.js";
 
 describe("vydra image-generation provider", () => {
@@ -11,8 +11,11 @@ describe("vydra image-generation provider", () => {
   const completed = () => vydra.jsonResponse({ jobId: "job-123", status: "completed", imageUrl });
   const queuedJob = () => vydra.jsonResponse({ jobId: "job-123", status: "queued" });
   const png = (body = "png-data") => vydra.binaryResponse(body, "image/png");
-  const headersAt = (mock: ReturnType<typeof vi.fn>, index: number) =>
-    new Headers((mock.mock.calls[index][1] as RequestInit).headers);
+  const headersAt = (mock: ReturnType<typeof vi.fn>, index: number) => {
+    const call = mock.mock.calls[index];
+    assert(call, `Expected fetch call ${index}`);
+    return new Headers((call[1] as RequestInit).headers);
+  };
   beforeEach(vydra.stubVydraApiKey);
   afterEach(() => {
     vi.unstubAllGlobals();

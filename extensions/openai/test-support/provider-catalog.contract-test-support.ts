@@ -62,7 +62,7 @@ export function describeOpenAIProviderCatalogContract() {
 
       resolveProviders
         .mockReset()
-        .mockImplementation(({ onlyPluginIds } = {}) =>
+        .mockImplementation(({ onlyPluginIds }: { onlyPluginIds?: string[] } = {}) =>
           !onlyPluginIds?.length || onlyPluginIds.includes("openai") ? openaiProviders : [],
         );
 
