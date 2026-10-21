@@ -8,32 +8,42 @@ function asTelegramMessage(message: unknown): Message {
   return message as Message;
 }
 
+function pollText(poll: Partial<NonNullable<Message["poll"]>>) {
+  return getTelegramTextParts({
+    poll: {
+      id: "poll-1",
+      question: "Ship the release?",
+      options: [{ persistent_id: "yes", text: "Yes", voter_count: 1 }],
+      total_voter_count: 1,
+      is_closed: false,
+      is_anonymous: true,
+      type: "regular",
+      allows_multiple_answers: false,
+      allows_revoting: false,
+      members_only: false,
+      ...poll,
+    },
+  });
+}
+
 describe("getTelegramTextParts", () => {
   it("projects native Telegram polls into bounded, accurate inbound text", () => {
-    const result = getTelegramTextParts(
-      asTelegramMessage({
-        poll: {
-          id: "poll-1",
-          question: "Ship the release?",
-          options: [
-            { persistent_id: "yes", text: "Yes", voter_count: 2 },
-            { persistent_id: "no", text: "No", voter_count: 1 },
-          ],
-          total_voter_count: 3,
-          is_closed: false,
-          is_anonymous: false,
-          type: "quiz",
-          allows_multiple_answers: false,
-          correct_option_ids: [0],
-          description: "Read docs",
-          description_entities: [
-            { type: "text_link", offset: 5, length: 4, url: "https://docs.example" },
-          ],
-          explanation: "All checks passed.",
-          explanation_entities: [{ type: "bold", offset: 0, length: 3 }],
-        },
-      }),
-    );
+    const result = pollText({
+      options: [
+        { persistent_id: "yes", text: "Yes", voter_count: 2 },
+        { persistent_id: "no", text: "No", voter_count: 1 },
+      ],
+      total_voter_count: 3,
+      is_anonymous: false,
+      type: "quiz",
+      correct_option_ids: [0],
+      description: "Read docs",
+      description_entities: [
+        { type: "text_link", offset: 5, length: 4, url: "https://docs.example" },
+      ],
+      explanation: "All checks passed.",
+      explanation_entities: [{ type: "bold", offset: 0, length: 3 }],
+    });
 
     expect(result).toEqual({
       text: [
@@ -55,22 +65,10 @@ describe("getTelegramTextParts", () => {
   it("preserves native poll links with Markdown-sensitive labels and destinations", () => {
     const label = "docs]more";
     const url = "https://example.com/report)final";
-    const result = getTelegramTextParts(
-      asTelegramMessage({
-        poll: {
-          id: "poll-links",
-          question: "Review the report?",
-          options: [{ text: "Yes", voter_count: 1 }],
-          total_voter_count: 1,
-          is_closed: false,
-          is_anonymous: true,
-          type: "regular",
-          allows_multiple_answers: false,
-          description: `Read ${label}`,
-          description_entities: [{ type: "text_link", offset: 5, length: label.length, url }],
-        },
-      }),
-    );
+    const result = pollText({
+      description: `Read ${label}`,
+      description_entities: [{ type: "text_link", offset: 5, length: label.length, url }],
+    });
 
     const parsed = markdownToIR(result.text);
     expect(parsed.text).toContain(`Read ${label}`);
@@ -125,8 +123,10 @@ describe("joinTelegramTextParts", () => {
   );
 });
 
-describe("renderTelegramTextEntities inline code normalization", () => {
-  it.each([[" \r\n ", "   "]])("preserves normalized spaces in %j", (code, normalized) => {
+describe("renderTelegramTextEntities", () => {
+  it("preserves normalized spaces in inline code", () => {
+    const code = " \r\n ";
+    const normalized = "   ";
     const prefix = "Code: ";
     const text = `${prefix}${code} end`;
     const parsed = markdownToIR(
@@ -140,26 +140,20 @@ describe("renderTelegramTextEntities inline code normalization", () => {
       { start: prefix.length, end: prefix.length + normalized.length, style: "code" },
     ]);
   });
-});
+  it("preserves multiline blockquote entities and nested formatting", () => {
+    const text = "Before\n😀 quoted\nsecond link\nAfter";
+    const quote = "😀 quoted\nsecond link";
+    const quoteOffset = text.indexOf(quote);
 
-describe("renderTelegramTextEntities quoted blocks", () => {
-  it.each(["blockquote"] as const)(
-    "preserves multiline %s entities and nested formatting",
-    (type) => {
-      const text = "Before\n😀 quoted\nsecond link\nAfter";
-      const quote = "😀 quoted\nsecond link";
-      const quoteOffset = text.indexOf(quote);
+    const entities: MessageEntity[] = [
+      { type: "blockquote", offset: quoteOffset, length: quote.length },
+      { type: "bold", offset: quoteOffset + "😀 ".length, length: "quoted".length },
+    ];
 
-      const entities: MessageEntity[] = [
-        { type, offset: quoteOffset, length: quote.length },
-        { type: "bold", offset: quoteOffset + "😀 ".length, length: "quoted".length },
-      ];
-
-      expect(renderTelegramTextEntities(text, entities)).toBe(
-        "Before\n> 😀 **quoted**\n> second link\n\nAfter",
-      );
-    },
-  );
+    expect(renderTelegramTextEntities(text, entities)).toBe(
+      "Before\n> 😀 **quoted**\n> second link\n\nAfter",
+    );
+  });
 
   it("reopens enclosing formatting across a quote block", () => {
     const text = "bold before\nquoted\nbold after";
