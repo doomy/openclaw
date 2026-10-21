@@ -1,15 +1,9 @@
-import { request } from "node:http";
+import { get, type IncomingMessage } from "node:http";
 import { expect, it, onTestFinished, vi } from "vitest";
-import {
-  getAdmittedRunDelegatedAuthority,
-  type AdmittedRunContext,
-} from "../agents/admitted-run-context.js";
+import * as admission from "../agents/admitted-run-context.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { startSecretEgressProxyServer } from "../secrets/egress-proxy/proxy-server.js";
-import {
-  clearSecretEgressProxy,
-  publishSecretEgressProxy,
-} from "../secrets/egress-proxy/registry.js";
+import * as proxyRegistry from "../secrets/egress-proxy/registry.js";
 import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { createCronScriptRuntimeFixture as createCronScriptRuntime } from "./trigger-script.test-helpers.js";
 
@@ -36,13 +30,13 @@ it("revokes proxy grants after cold and warm trigger commands in a fresh agent",
   });
   onTestFinished(async () => {
     vi.restoreAllMocks();
-    clearSecretEgressProxy(proxy);
+    proxyRegistry.clearSecretEgressProxy(proxy);
     await proxy.stop();
   });
-  publishSecretEgressProxy(proxy);
+  proxyRegistry.publishSecretEgressProxy(proxy);
   const registrations = vi.spyOn(proxy, "registerProcess");
   const runtime = createCronScriptRuntime({ config });
-  const admitted: AdmittedRunContext[] = [];
+  const admitted: admission.AdmittedRunContext[] = [];
   for (let index = 0; index < 2; index += 1) {
     await expect(
       runtime.evaluateTrigger({
@@ -56,40 +50,33 @@ it("revokes proxy grants after cold and warm trigger commands in a fresh agent",
         execTarget: { version: 1, host: "gateway" } as const,
         executionIdentity: {
           ingress: { kind: "schedule", boundary: "cron.script", state: "present" } as const,
-          onPostAdmission: (context: AdmittedRunContext) => {
-            admitted.push(context);
-          },
+          onPostAdmission: (context) => void admitted.push(context),
         },
       }),
     ).resolves.toEqual({ kind: "evaluated", fire: false });
     expect(admitted).toHaveLength(index + 1);
-    expect(getAdmittedRunDelegatedAuthority(admitted[index]!)).toBeUndefined();
+    expect(admission.getAdmittedRunDelegatedAuthority(admitted[index]!)).toBeUndefined();
     expect(registrations).toHaveBeenCalledTimes(index + 1);
     const registration = registrations.mock.results[index];
     if (registration?.type !== "return") {
       throw new Error("Expected the command's proxy grant");
     }
     const url = new URL(registration.value.env.HTTPS_PROXY!);
-    await expect(
-      new Promise<number | undefined>((resolve, reject) => {
-        const req = request(
-          {
-            hostname: url.hostname,
-            port: url.port,
-            agent: false,
-            path: "https://example.invalid/",
-            headers: {
-              "Proxy-Authorization": `Basic ${Buffer.from(`${url.username}:${url.password}`).toString("base64")}`,
-            },
-          },
-          (response) => {
-            response.resume();
-            resolve(response.statusCode);
-          },
-        );
-        req.on("error", reject).end();
-      }),
-    ).resolves.toBe(407);
+    const credentials = Buffer.from(`${url.username}:${url.password}`).toString("base64");
+    const response = await new Promise<IncomingMessage>((resolve, reject) => {
+      get(
+        {
+          hostname: url.hostname,
+          port: url.port,
+          agent: false,
+          path: "https://example.invalid/",
+          headers: { "Proxy-Authorization": `Basic ${credentials}` },
+        },
+        resolve,
+      ).on("error", reject);
+    });
+    response.resume();
+    expect(response.statusCode).toBe(407);
   }
   expect(admitted[1]?.operationalRunInstance).not.toEqual(admitted[0]?.operationalRunInstance);
 });
