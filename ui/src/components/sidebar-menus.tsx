@@ -354,7 +354,9 @@ export function createSidebarMenus(deps: {
       routePreloadTimers.clear();
     },
 
-    preloadMenuRenderer: menuRendererImport.load,
+    async preloadMenuRenderer() {
+      await Promise.all([MenuRenderer.preload(), LazyCatalogMenu.preload()]);
+    },
 
     closePositionedMenu(menu: PositionedMenu, options: { restoreFocus?: boolean } = {}) {
       setField(`${menu}MenuPosition`, null);
