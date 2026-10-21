@@ -52,33 +52,39 @@ export function createCronPresentation(deps: CronPresentationDeps) {
     deps.readState();
     return deps.connection.epoch;
   });
+  // Read computations outlive their scope so replacement does not retire a
+  // pending child while its parent is waiting to publish the new scope.
+  const jobsRead = createMemo(() => {
+    const state = ownerScope();
+    const epoch = connectionEpoch();
+    ownerJobs();
+    ownerJobsError();
+    const receipt = jobsReceipt();
+    return receipt?.state === state && receipt.epoch === epoch
+      ? receipt.result.then(() => {
+          // Keep last-good data on refresh failure; only a failed first read
+          // has no content to retain and belongs to the error boundary.
+          if (!state.cronJobsSnapshotRevision && state.cronJobsError) {
+            throw new Error(state.cronJobsError);
+          }
+          return state.cronJobs;
+        })
+      : Promise.resolve(state.cronJobs);
+  });
+  const statusRead = createMemo(() => {
+    const state = ownerScope();
+    const epoch = connectionEpoch();
+    ownerStatus();
+    const receipt = statusReceipt();
+    return receipt?.state === state && receipt.epoch === epoch
+      ? receipt.result.then(() => state.cronStatus)
+      : Promise.resolve(state.cronStatus);
+  });
   // A reconnect retires presentation too: guesses and pending reads from the
   // previous connection must not attach to a same-ID job on its successor.
   const presentation = createMemo(() => {
     const state = ownerScope();
     const epoch = connectionEpoch();
-    const jobsRead = createMemo(() => {
-      ownerJobs();
-      ownerJobsError();
-      const receipt = jobsReceipt();
-      return receipt?.state === state && receipt.epoch === epoch
-        ? receipt.result.then(() => {
-            // Keep last-good data on refresh failure; only a failed first read
-            // has no content to retain and belongs to the error boundary.
-            if (!state.cronJobsSnapshotRevision && state.cronJobsError) {
-              throw new Error(state.cronJobsError);
-            }
-            return state.cronJobs;
-          })
-        : Promise.resolve(state.cronJobs);
-    });
-    const statusRead = createMemo(() => {
-      ownerStatus();
-      const receipt = statusReceipt();
-      return receipt?.state === state && receipt.epoch === epoch
-        ? receipt.result.then(() => state.cronStatus)
-        : Promise.resolve(state.cronStatus);
-    });
     const [jobs, setOptimisticJobs] = createOptimisticStore(
       () => {
         ownerJobs();

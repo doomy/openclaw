@@ -25,7 +25,7 @@ the first `await`, and put all data-dependent rendering under its `Loading`.
 For a domain that already admits reads imperatively, observe its request
 receipt instead of sending the same RPC from a memo. Cron's existing refresh
 path calls `loadCronJobsPage` and publishes the captured state and completion
-promise. The presentation memo consumes that receipt:
+promise. A page-lifetime memo consumes that receipt:
 
 ```ts
 type ReadReceipt = { state: CronState; epoch: number; result: Promise<unknown> };
@@ -38,23 +38,20 @@ function retirePresentation() {
   presentationLifetime = Promise.withResolvers<void>();
 }
 // Scope and connectionEpoch are narrowed memos over the existing owner.
-const presentation = createMemo(() => {
+const jobsRead = createMemo(() => {
   const state = scope();
   const epoch = connectionEpoch();
-  const jobsRead = createMemo(() => {
-    ownerJobs();
-    ownerJobsError();
-    const admitted = receipt();
-    return admitted?.state === state && admitted.epoch === epoch
-      ? admitted.result.then(() => {
-          if (!state.cronJobsSnapshotRevision && state.cronJobsError) {
-            throw new Error(state.cronJobsError);
-          }
-          return state.cronJobs;
-        })
-      : Promise.resolve(state.cronJobs);
-  });
-  return { state, epoch, jobsRead };
+  ownerJobs();
+  ownerJobsError();
+  const admitted = receipt();
+  return admitted?.state === state && admitted.epoch === epoch
+    ? admitted.result.then(() => {
+        if (!state.cronJobsSnapshotRevision && state.cronJobsError) {
+          throw new Error(state.cronJobsError);
+        }
+        return state.cronJobs;
+      })
+    : Promise.resolve(state.cronJobs);
 });
 
 // In the existing imperative owner refresh path, outside the computation:
@@ -64,9 +61,14 @@ const result = runCronTask(loadCronJobsPage);
 setReceipt({ state, epoch, result });
 ```
 
-Capture state, connection epoch, and receipt before awaiting. The scoped memo
-owns its async reads and, below, its optimistic store and saving flag. Replacing
-the owner or reconnecting creates a new presentation and disposes the old one.
+Capture state, connection epoch, and receipt before awaiting. Keep the read memo
+at page lifetime and capture its current scope in the tracked phase. Nesting it
+inside a replaced scope memo can hold the scope transition on the very child
+being retired, leaving unrelated model and route updates stuck too. Keep initial
+snapshots promise-shaped so first readiness uses the same async boundary.
+
+The scoped presentation memo below owns its optimistic store and saving flag.
+Replacing the owner or reconnecting creates a new presentation and disposes the old one.
 An ID-keyed optimistic store alone is insufficient: a guess for `job-1` on the
 old Gateway otherwise follows `job-1` onto its successor until the old action
 settles. The epoch also prevents a same-client reconnect from awaiting its
@@ -120,8 +122,7 @@ For a retained list, `latest(jobsRead)` consumes the data/error while serving
 the last resolved value during revalidation. An uninitialized read still
 suspends into `Loading`; `latest` does not invent an initial value.
 An already-rendered sibling also needs the correct scope dependency; otherwise
-it can hold an earlier scope outside the newly re-armed slot. Promise-shaped
-initial snapshots let first readiness participate in the same async model.
+it can hold an earlier scope outside the newly re-armed slot.
 
 `latest(scope)` deliberately displays the destination of a held transition.
 Use it when the selected scope/loading affordance should advance ahead of the
@@ -143,7 +144,7 @@ optimistic store from the owner's readable result; never write optimistic
 values into its authoritative snapshot.
 
 ```ts
-// Construct these inside the same scoped presentation memo as jobsRead.
+// Construct these inside a memo keyed by scope() and connectionEpoch().
 const [jobs, setJobs] = createOptimisticStore(
   () => {
     ownerJobs();
