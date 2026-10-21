@@ -333,21 +333,26 @@ Use `lazy` for the component code, and retain the route's existing component
 loader. The loader still controls when import begins and when the router
 considers the module ready:
 
-```tsx
-const CronPage = lazy(() => import("./cron-page.tsx"), { export: "CronPage" });
-
-// Inside the existing definePage component loader:
+```ts
+// route.tsx: keep rendering and its runtime imports behind the route boundary.
 component: async () => {
-  await CronPage.preload();
-  return {
-    header: true,
-    renderSolid: (props: SolidRouteProps) => (
-      <Loading>
-        <CronPage routeSearch={typeof props.data === "string" ? props.data : ""} />
-      </Loading>
-    ),
-  };
+  const entry = await import("./cron-page-entry.tsx");
+  await entry.CronPage.preload();
+  return entry;
 },
+```
+
+```tsx
+// cron-page-entry.tsx: loaded only by the route's component loader.
+export const CronPage = lazy(() => import("./cron-page.tsx"), { export: "CronPage" });
+export const header = true;
+export function renderSolid(props: SolidRouteProps) {
+  return (
+    <Loading>
+      <CronPage routeSearch={typeof props.data === "string" ? props.data : ""} />
+    </Loading>
+  );
+}
 ```
 
 Do not invoke `preload()` at module scope or import the page implementation
@@ -356,11 +361,13 @@ in `.tsx`; replace hand-written `createComponent` rather than keeping a second
 render helper. Check startup bytes against the base on the same machine.
 
 Check the emitted graph as well as the source import. The first use of an
-action made Solid retain three runtime initializers; the generated boot groups
+action made Solid retain runtime initializers; the generated boot groups
 initially put them beside Markdown code, which pulled that entire chunk into
 startup even though cron stayed lazy. The chunking owner keeps these small
-runtime modules separate. Do not fix grouping by importing private package
-internals or by increasing the startup budget.
+runtime modules together. Do not fix grouping by importing private package
+internals. The one-time shared Solid action/optimistic runtime cost was explicitly
+approved for W-SOLID2-RECIPES, with its offset tracked by HF-STARTUP-BUDGET;
+that exception does not authorize later pages to increase startup budgets.
 
 ## Reveal sibling regions
 
