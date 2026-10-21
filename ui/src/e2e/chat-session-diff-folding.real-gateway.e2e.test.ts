@@ -174,6 +174,7 @@ suite.define(() => {
       async ({ page }) => {
         let sentDiffRead = 0;
         let completedDiffRead = 0;
+        let completedDiffResult: SessionsDiffResult | undefined;
         page.on("websocket", (socket) => {
           const requests = new Map<string, number>();
           socket.on("framesent", ({ payload }) => {
@@ -197,7 +198,10 @@ suite.define(() => {
             }
             requests.delete(frame.id);
             if (frame.ok && (frame.payload as SessionsDiffResult | undefined)?.computing !== true) {
-              completedDiffRead = Math.max(completedDiffRead, sequence);
+              if (sequence > completedDiffRead) {
+                completedDiffRead = sequence;
+                completedDiffResult = frame.payload as SessionsDiffResult;
+              }
             }
           });
         });
@@ -232,6 +236,7 @@ suite.define(() => {
           // Idle can precede request setup; observe this refresh's full result first.
           await expect.poll(() => completedDiffRead).toBeGreaterThan(previousRead);
           await expect.poll(() => panel.getAttribute("aria-busy")).toBe("false");
+          return completedDiffResult;
         };
         const file = panel.locator(".session-diff__file").filter({ hasText: "example.ts" });
         const fileToggle = file.locator(".session-diff__file-toggle");
@@ -334,10 +339,23 @@ suite.define(() => {
           after.join("\n").replace('"empty"', '"nothing"') + "\n",
         );
         const refreshStart = await page.evaluate(() => performance.now());
-        await refresh();
+        const refreshed = await refresh();
+        expect(refreshed?.files.find((entry) => entry.path === "example.ts")?.patch).toContain(
+          '+  return "nothing";',
+        );
         expect(await fileToggle.getAttribute("aria-expanded")).toBe("false");
         await fileToggle.click();
-        await file.getByText('return "nothing";', { exact: true }).waitFor();
+        try {
+          await file.getByText('return "nothing";', { exact: true }).waitFor();
+        } catch (error) {
+          console.info("Changed patch disclosure diagnostic", {
+            text: await file.textContent(),
+            expanded: await fileToggle.getAttribute("aria-expanded"),
+            placeholders: await placeholder.count(),
+          });
+          await take("changed-patch-timeout");
+          throw error;
+        }
         expect(await placeholder.count()).toBe(0);
         report.changedPatchRefreshMs =
           (await page.evaluate(
