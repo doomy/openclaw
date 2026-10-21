@@ -77,6 +77,10 @@ default, using the configured user timezone), `local` (Gateway host), or an IANA
 timezone. The window uses local wall-clock time across daylight saving changes,
 independently of the cron expression's schedule timezone.
 
+A one-shot `at` job due outside its active hours stays pending until the window
+opens. Recurring `every` and `cron` schedules skip that occurrence and advance
+to the next scheduled time.
+
 ```bash
 openclaw automations add \
   --name "Project monitor" \

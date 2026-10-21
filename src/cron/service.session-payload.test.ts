@@ -127,6 +127,90 @@ describe("ordinary session agent turns", () => {
 });
 
 describe("unstarted scheduled admission", () => {
+  it.each(["at", "every", "cron"] as const)(
+    "retains only one-shot occurrences outside active hours (%s)",
+    async (scheduleKind) => {
+      const store = await makeStorePath();
+      const clock = createGatewaySchedulerClock(Date.parse("2026-10-20T08:59:00Z"));
+      const scheduler = createTestGatewayScheduler(clock.clock);
+      const run = vi.fn(async (): Promise<CronJobExecutionResult> => ({
+        status: "ok",
+        executionStarted: true,
+      }));
+      const events: CronEvent[] = [];
+      const { cron, state } = createCronServiceWithStateForTest({
+        scheduler,
+        storePath: store.storePath,
+        cronEnabled: true,
+        defaultAgentId: "main",
+        log: logger,
+        enqueueSystemEvent: vi.fn(),
+        requestHeartbeat: vi.fn(),
+        runSessionEvent: run,
+        runIsolatedAgentJob: run,
+        onEvent: (event) => events.push(event),
+      });
+      try {
+        const job = await cron.add({
+          name: `Active hours ${scheduleKind}`,
+          enabled: true,
+          deleteAfterRun: false,
+          schedule:
+            scheduleKind === "at"
+              ? { kind: "at", at: "2026-10-20T09:00:00Z" }
+              : scheduleKind === "every"
+                ? { kind: "every", everyMs: 60_000 }
+                : { kind: "cron", expr: "* * * * *", tz: "UTC", staggerMs: 0 },
+          activeHours: { start: "10:00", end: "17:00", timezone: "UTC" },
+          payload: { kind: "agentTurn", message: "Run inside active hours" },
+          sessionTarget: "main",
+          wakeMode: "now",
+          delivery: { mode: "none" },
+        });
+        await cron.start();
+        const dueAt = cron.getJob(job.id)!.state.nextRunAtMs!;
+        clock.setTime(dueAt);
+        await onTimer(state);
+        const waiting = (await loadCronStore(store.storePath)).jobs.find(
+          (entry) => entry.id === job.id,
+        )!;
+        expect(run).not.toHaveBeenCalled();
+        expect(waiting.enabled).toBe(true);
+        if (scheduleKind === "at") {
+          expect(waiting.state.nextRunAtMs).toBe(dueAt);
+          expect(waiting.state.lastRunStatus).toBeUndefined();
+          expect(readCronRunRecordsForTests(job.id)).toEqual([]);
+          expect(events.filter((event) => event.action === "finished")).toEqual([]);
+        } else {
+          expect(waiting.state.nextRunAtMs).toBeGreaterThan(dueAt);
+          expect(waiting.state.lastRunStatus).toBe("skipped");
+          expect(readCronRunRecordsForTests(job.id)).toHaveLength(1);
+        }
+        expect(waiting.state.runningReceiptId).toBeUndefined();
+        expect(
+          inspectActiveCronRunReceipt({ storePath: store.storePath, jobId: job.id }),
+        ).toBeUndefined();
+
+        clock.setTime(Date.parse("2026-10-20T10:00:00Z"));
+        await onTimer(state);
+        expect(run).toHaveBeenCalledOnce();
+        expect(cron.getJob(job.id)!.state.lastRunStatus).toBe("ok");
+        expect(readCronRunRecordsForTests(job.id)).toHaveLength(scheduleKind === "at" ? 1 : 2);
+        if (scheduleKind === "at") {
+          expect(cron.getJob(job.id)!.enabled).toBe(false);
+          expect(cron.getJob(job.id)!.state.nextRunAtMs).toBeUndefined();
+        }
+        clock.setTime(scheduler.now() + MIN_REFIRE_GAP_MS);
+        await onTimer(state);
+        expect(run).toHaveBeenCalledOnce();
+      } finally {
+        cron.stop();
+        await cron.waitForIdle();
+        await scheduler.stop();
+      }
+    },
+  );
+
   it.each(
     (["at", "every", "cron"] as const).flatMap((scheduleKind) =>
       (["preflight", "session", "isolated"] as const).map((boundary) => ({

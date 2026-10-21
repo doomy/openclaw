@@ -118,6 +118,8 @@ export async function executeJobCore(
     return {
       status: "skipped",
       summary: "Outside this automation's active hours",
+      admissionDeferred: job.schedule.kind === "at",
+      admissionDeferredReason: "active-hours",
       executionStarted: false,
       delivered: false,
       deliveryAttempted: false,
@@ -137,6 +139,8 @@ export async function executeJobCore(
         return {
           status: "skipped",
           summary: "Outside this automation's active hours",
+          admissionDeferred: job.schedule.kind === "at",
+          admissionDeferredReason: "active-hours",
           executionStarted: false,
           delivered: false,
           deliveryAttempted: false,
