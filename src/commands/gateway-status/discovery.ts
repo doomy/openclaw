@@ -33,6 +33,7 @@ export async function resolveSshTarget(params: {
   rawTarget: string;
   identity: string | null;
   overallTimeoutMs: number;
+  signal?: AbortSignal;
 }): Promise<{ target: string; identity?: string } | null> {
   const [{ resolveSshConfig }, { parseSshTarget }] = await Promise.all([
     import("../../infra/ssh-config.js"),
@@ -46,6 +47,7 @@ export async function resolveSshTarget(params: {
     explicitPort: /:\d+$/.test(params.rawTarget.trim()),
     identity: params.identity ?? undefined,
     timeoutMs: Math.min(800, params.overallTimeoutMs),
+    signal: params.signal,
   });
   if (!config) {
     return { target: params.rawTarget, identity: params.identity ?? undefined };

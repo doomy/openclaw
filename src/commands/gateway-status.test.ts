@@ -1,5 +1,5 @@
 import { expectDefined } from "@openclaw/normalization-core";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stripAnsi } from "../../packages/terminal-core/src/ansi.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { GatewayProbeResult } from "../gateway/probe.js";
@@ -249,6 +249,59 @@ describe("gateway-status command", () => {
     vi.clearAllMocks();
     readBestEffortConfig.mockReset().mockImplementation(defaultConfigReader);
     probeGateway.mockReset().mockImplementation(async ({ url }) => mocks.successfulProbe(url));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("checks known targets during discovery and cancels unfinished checks at the overall deadline", async () => {
+    vi.useFakeTimers();
+    const { runtime, runtimeLogs } = createRuntimeCapture();
+    readBestEffortConfig.mockResolvedValueOnce(localGatewayConfig());
+    discoverGatewayBeacons.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve([]), 1000);
+        }),
+    );
+    probeGateway.mockImplementation(async (opts: ProbeGatewayCall) => {
+      if (opts.url.includes("127.0.0.1")) {
+        return mocks.successfulProbe(opts.url);
+      }
+      return await new Promise<GatewayProbeResult>((resolve) => {
+        const timer = setTimeout(
+          () => resolve(createUnreachableGatewayProbe(opts.url, "late timeout")),
+          2000,
+        );
+        opts.signal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          resolve(createUnreachableGatewayProbe(opts.url, "aborted"));
+        });
+      });
+    });
+
+    const command = runGatewayStatus(runtime, {
+      timeout: "1000",
+      json: true,
+      url: "wss://slow.example:18789",
+      token: "explicit-token",
+    });
+    await vi.advanceTimersByTimeAsync(500);
+    const startedDuringDiscovery = readProbeCalls().map((call) => call.url);
+    await vi.advanceTimersByTimeAsync(2500);
+    await command;
+
+    expect(startedDuringDiscovery).toEqual(["wss://slow.example:18789", "ws://127.0.0.1:18789"]);
+    expect(JSON.parse(runtimeLogs.join("\n"))).toMatchObject({
+      ok: true,
+      durationMs: 1000,
+      primaryTargetId: "localLoopback",
+      targets: [
+        { id: "explicit", connect: { ok: false, error: "timeout" } },
+        { id: "localLoopback", connect: { ok: true } },
+      ],
+    });
   });
 
   it("prints human output by default", async () => {
@@ -614,7 +667,7 @@ describe("gateway-status command", () => {
 
     expect(startSshPortForward).toHaveBeenCalledTimes(1);
     expect(probeGateway).toHaveBeenCalled();
-    const tunnelCall = readProbeCalls().find((call) => call.url.startsWith("ws://127.0.0.1:"));
+    const tunnelCall = readProbeCalls().find((call) => call.sshTunnel);
     expect(tunnelCall?.auth?.token).toBe("rtok");
     expect(tunnelCall?.sshTunnel).toMatchObject({ target: "me@studio", remotePort: 18789 });
     const tunnelSignal = requireSshForwardCall().signal;
@@ -646,7 +699,8 @@ describe("gateway-status command", () => {
     const localProbeCall = requireProbeCall("wss://127.0.0.1:18789");
     expect(localProbeCall.originScopedDeviceAuth).toBeUndefined();
     expect(localProbeCall.tlsFingerprint).toBe("sha256:local-fingerprint");
-    expect(localProbeCall.timeoutMs).toBe(15_000);
+    expect(localProbeCall.timeoutMs).toBeGreaterThan(0);
+    expect(localProbeCall.timeoutMs).toBeLessThanOrEqual(15_000);
   });
 
   it("warns when local TLS is enabled but the certificate fingerprint cannot be loaded", async () => {
@@ -696,7 +750,8 @@ describe("gateway-status command", () => {
 
     expect(runtimeErrors).toHaveLength(0);
     expect(readProbeCalls().map((call) => call.url)).toEqual(["ws://127.0.0.1:19080"]);
-    expect(requireProbeCall("ws://127.0.0.1:19080").timeoutMs).toBe(15_000);
+    expect(requireProbeCall("ws://127.0.0.1:19080").timeoutMs).toBeGreaterThan(0);
+    expect(requireProbeCall("ws://127.0.0.1:19080").timeoutMs).toBeLessThanOrEqual(15_000);
     expect(JSON.parse(runtimeLogs.join("\n"))).toMatchObject({
       network: { localLoopbackUrl: "ws://127.0.0.1:19080" },
       primaryTargetId: "localLoopback",
