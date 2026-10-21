@@ -8,7 +8,7 @@ import {
 import { clearLiveCatalogCacheForTests } from "openclaw/plugin-sdk/provider-catalog-live-runtime";
 import { buildManifestModelProviderConfig } from "openclaw/plugin-sdk/provider-catalog-shared";
 import { buildOpenAICompletionsParams } from "openclaw/plugin-sdk/provider-transport-runtime";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import plugin from "./index.js";
 import manifest from "./openclaw.plugin.json" with { type: "json" };
 
@@ -33,11 +33,11 @@ function requireCohereModel(modelId = PLUS): Model<"openai-completions"> {
   } as Model<"openai-completions">;
 }
 
-function captureCoherePayload(
+function capturePayload(
   context: Context,
   settings?: { modelId?: string; reasoning?: string },
 ): Record<string, unknown> {
-  let captured: Record<string, unknown> | undefined;
+  const onPayload = vi.fn<(payload: unknown) => void>();
   const baseStreamFn: StreamFn = (model, streamContext, streamOptions) => {
     const payload = buildOpenAICompletionsParams(
       model as Model<"openai-completions">,
@@ -56,121 +56,88 @@ function captureCoherePayload(
     model,
     streamFn: baseStreamFn,
   });
-  if (!wrappedStreamFn) {
-    throw new Error("Cohere wrapper did not return a stream function");
-  }
-  void wrappedStreamFn(model, context, {
-    onPayload: (payload) => {
-      captured = payload as Record<string, unknown>;
-    },
-  });
-  if (!captured) {
-    throw new Error("Cohere payload was not captured");
-  }
-  return captured;
+  void wrappedStreamFn?.(model, context, { onPayload });
+  expect(onPayload).toHaveBeenCalledOnce();
+  return onPayload.mock.calls[0][0] as Record<string, unknown>;
 }
 
-describe("Cohere provider plugin", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    clearLiveCatalogCacheForTests();
+afterEach(() => {
+  vi.unstubAllGlobals();
+  clearLiveCatalogCacheForTests();
+});
+
+it("keeps North Mini Code text-only with Cohere's binary reasoning contract", () => {
+  const model = requireCohereModel("north-mini-code-1-0");
+  expect(model.input).toEqual(["text"]);
+  expect(model.compat?.supportedReasoningEfforts).toEqual(["none", "high"]);
+  expect(model.compat?.reasoningEffortMap).toEqual({
+    off: "none",
+    none: "none",
+    ...Object.fromEntries(
+      "minimal low medium high xhigh adaptive max".split(" ").map((key) => [key, "high"]),
+    ),
   });
+});
 
-  it("keeps North Mini Code text-only with Cohere's binary reasoning contract", () => {
-    const model = requireCohereModel("north-mini-code-1-0");
-    expect(model.input).toEqual(["text"]);
-    expect(model.compat?.supportedReasoningEfforts).toEqual(["none", "high"]);
-    expect(model.compat?.reasoningEffortMap).toEqual({
-      off: "none",
-      none: "none",
-      minimal: "high",
-      low: "high",
-      medium: "high",
-      high: "high",
-      xhigh: "high",
-      adaptive: "high",
-      max: "high",
-    });
+it("discovers active chat models through the registered Cohere catalog", async () => {
+  const fetch = vi.fn(async () =>
+    Response.json({
+      models: [
+        { name: "command-fresh", context_length: 256_000 },
+        { name: "command-retired", is_deprecated: true },
+      ].map((row) => Object.assign(row, { endpoints: ["chat"] })),
+    }),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const provider = await registerSingleProviderPlugin(plugin);
+  const result = await runProviderCatalog({
+    provider,
+    config: {},
+    env: {},
+    resolveProviderApiKey: () => ({ apiKey: "synthetic-cohere-key" }),
+    resolveProviderAuth: () => ({ apiKey: undefined, mode: "none", source: "none" }),
   });
+  expect(fetch).toHaveBeenCalledExactlyOnceWith(
+    "https://api.cohere.com/v1/models?endpoint=chat&page_size=1000",
+    expect.anything(),
+  );
+  expect(result && "provider" in result && result.provider.models).toEqual([
+    expect.objectContaining({ id: "command-fresh", contextWindow: 256_000 }),
+  ]);
+});
 
-  it("discovers active chat models through the registered Cohere catalog", async () => {
-    const fetch = vi.fn(async () =>
-      Response.json({
-        models: [
-          {
-            name: "command-fresh",
-            is_deprecated: false,
-            endpoints: ["chat"],
-            context_length: 256_000,
-          },
-          { name: "command-retired", is_deprecated: true, endpoints: ["chat"] },
-        ],
-      }),
-    );
-    vi.stubGlobal("fetch", fetch);
-    const provider = await registerSingleProviderPlugin(plugin);
-    const result = await runProviderCatalog({
-      provider,
-      config: {},
-      env: {},
-      resolveProviderApiKey: () => ({ apiKey: "synthetic-cohere-key" }),
-      resolveProviderAuth: () => ({ apiKey: undefined, mode: "none", source: "none" }),
-    });
-    expect(fetch).toHaveBeenCalledExactlyOnceWith(
-      "https://api.cohere.com/v1/models?endpoint=chat&page_size=1000",
-      expect.anything(),
-    );
-    expect(result && "provider" in result && result.provider.models).toEqual([
-      expect.objectContaining({ id: "command-fresh", contextWindow: 256_000 }),
-    ]);
+it("uses Cohere's OpenAI-compatible completions payload fields", () => {
+  const params = capturePayload({
+    systemPrompt: "system",
+    messages: [],
+    tools: [{ name: "lookup", description: "", parameters: { type: "object", properties: {} } }],
+  } as Context);
+
+  expect(params).toMatchObject({
+    max_tokens: 2048,
+    messages: [{ role: "developer", content: "system" }],
   });
+  for (const field of ["max_completion_tokens", "store", "stream_options", "tool_choice"]) {
+    expect(params).not.toHaveProperty(field);
+  }
+});
 
-  it("uses Cohere's OpenAI-compatible completions payload fields", () => {
-    const params = captureCoherePayload({
-      systemPrompt: "system",
-      messages: [],
-      tools: [
-        {
-          name: "lookup",
-          description: "Look up a value",
-          parameters: { type: "object", properties: {} },
-        },
-      ],
-    } as Context);
+it("maps Command A+ and Command A Reasoning to Cohere's supported reasoning efforts", () => {
+  for (const modelId of [PLUS, REASONING]) {
+    expect(
+      ["off", "medium"].map(
+        (reasoning) => capturePayload({ messages: [] }, { modelId, reasoning }).reasoning_effort,
+      ),
+    ).toEqual(["none", "high"]);
+  }
+});
 
-    expect(params.max_tokens).toBe(2048);
-    for (const field of ["max_completion_tokens", "store", "stream_options", "tool_choice"]) {
-      expect(params).not.toHaveProperty(field);
-    }
-    expect(params.messages).toEqual(
-      expect.arrayContaining([expect.objectContaining({ role: "developer", content: "system" })]),
-    );
-    expect(params.messages).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ role: "system", content: "system" })]),
-    );
-  });
+it("advertises only tool-capable current Cohere models to modern live sweeps", async () => {
+  const provider = await registerSingleProviderPlugin(plugin);
 
-  it("maps Command A+ and Command A Reasoning to Cohere's supported reasoning efforts", () => {
-    const context = { messages: [] } as Context;
-
-    for (const modelId of [PLUS, REASONING]) {
-      expect(captureCoherePayload(context, { modelId, reasoning: "off" }).reasoning_effort).toBe(
-        "none",
-      );
-      expect(captureCoherePayload(context, { modelId, reasoning: "medium" }).reasoning_effort).toBe(
-        "high",
-      );
-    }
-  });
-
-  it("advertises only tool-capable current Cohere models to modern live sweeps", async () => {
-    const provider = await registerSingleProviderPlugin(plugin);
-
-    const isModern = (modelId: string) =>
-      provider.isModernModelRef?.({ provider: "cohere", modelId });
-    expect(isModern(PLUS)).toBe(true);
-    expect(isModern(REASONING)).toBe(true);
-    expect(isModern("command-a-03-2025")).toBe(false);
-    expect(isModern(VISION)).toBe(false);
-  });
+  expect(
+    [PLUS, REASONING, "command-a-03-2025", VISION].map((modelId) =>
+      provider.isModernModelRef?.({ provider: "cohere", modelId }),
+    ),
+  ).toEqual([true, true, false, false]);
 });
