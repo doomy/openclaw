@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import * as http from "node:http";
+import type { ChannelPlugin } from "openclaw/plugin-sdk/channel-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { synologyChatPlugin } from "./channel.js";
 import { resolveLegacyWebhookNameToChatUserId, sendMessage } from "./client.js";
@@ -238,6 +239,37 @@ describe("Synology Chat client loopback", () => {
     expect(rejectedMediaDispatch).toHaveBeenCalledOnce();
     expect(hostedCapabilityCleanup).toHaveBeenCalledOnce();
     expect(receivedPayloads).toHaveLength(1);
+  });
+
+  it("rejects invalid recipients before HTTP and delivers normalized numeric IDs", async () => {
+    const payloads: unknown[] = [];
+    const port = await listenLoopback((req, res) => {
+      readForm(req, (body) => {
+        payloads.push(JSON.parse(body ?? "{}"));
+        respond(res, true);
+      });
+    });
+    const cfg = config(`http://127.0.0.1:${port}/webapi/entry.cgi`);
+    const plugin: ChannelPlugin = synologyChatPlugin;
+    const resolve = (to: string) => plugin.outbound?.resolveTarget?.({ cfg, to, mode: "explicit" });
+    const invalid = resolve("42oops");
+    if (invalid?.ok) {
+      await synologyChatPlugin.outbound.sendText({
+        cfg,
+        text: "invalid recipient",
+        to: invalid.to,
+      });
+    }
+    expect(invalid).toMatchObject({ ok: false });
+    expect(payloads).toEqual([]);
+
+    const valid = resolve("synology-chat:00042");
+    expect(valid).toEqual({ ok: true, to: "42" });
+    if (!valid?.ok) {
+      throw new Error("Expected a normalized recipient");
+    }
+    await synologyChatPlugin.outbound.sendText({ cfg, text: "normalized recipient", to: valid.to });
+    expect(payloads).toEqual([{ text: "normalized recipient", user_ids: [42] }]);
   });
 
   it("delivers authenticated text and media without inventing platform message ids", async () => {
