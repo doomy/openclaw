@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 import plugin, { DEFAULT_REVIEW_INSTRUCTIONS } from "./index.js";
 
 type AgentEventSubscription = Parameters<OpenClawPluginApi["registerAgentEventSubscription"]>[0];
+type EventContext = Parameters<AgentEventSubscription["handle"]>[1];
 type Hook = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
 
 function setup(pluginConfig: Record<string, unknown>, reply = "NO_CHANGE") {
@@ -82,9 +83,7 @@ function setup(pluginConfig: Record<string, unknown>, reply = "NO_CHANGE") {
       {
         // SAFETY: Mirrors the host owner; run-context reads are caller-typed by namespace.
         getRunContext: ((namespace: string) =>
-          runContexts.get(`${runId}:${namespace}`)) as Parameters<
-          AgentEventSubscription["handle"]
-        >[1]["getRunContext"],
+          runContexts.get(`${runId}:${namespace}`)) as EventContext["getRunContext"],
         setRunContext: () => {},
         clearRunContext: () => {},
       },
@@ -102,13 +101,14 @@ function setup(pluginConfig: Record<string, unknown>, reply = "NO_CHANGE") {
       );
       await emit("lifecycle", "start", runId);
     },
-    /** A tool call that starts and returns its result. */
     tool: async (runId = "run-1") => {
       const toolCallId = `call-${(calls += 1)}`;
       await emit("tool", "start", runId, { toolCallId });
       await emit("tool", "result", runId, { toolCallId });
     },
     emit,
+    item: (phase: string, itemId: string, type: string) =>
+      emit("codex_app_server.item", phase, "run-1", { itemId, type }),
     endRun: (runId = "run-1", aborted = false) => emit("lifecycle", "end", runId, { aborted }),
     flush: async () => {
       await clock.wake();
@@ -119,11 +119,16 @@ function setup(pluginConfig: Record<string, unknown>, reply = "NO_CHANGE") {
   };
 }
 
+async function startAdvisor(everyToolCalls = 1, reply = "NO_CHANGE") {
+  const run = setup({ everyToolCalls, everyMinutes: 0 }, reply);
+  await run.start();
+  await run.startRun();
+  return run;
+}
+
 describe("advisor", () => {
   it("steers an active run after N tool calls", async () => {
-    const run = setup({ everyToolCalls: 2, everyMinutes: 0 }, "CORRECTION\nStop polling.");
-    await run.start();
-    await run.startRun();
+    const run = await startAdvisor(2, "CORRECTION\nStop polling.");
     await run.tool();
     await run.flush();
     expect(run.forkSession).not.toHaveBeenCalled();
@@ -141,9 +146,7 @@ describe("advisor", () => {
   });
 
   it("waits for a running tool's real result before forking, including Codex native tools", async () => {
-    const run = setup({ everyToolCalls: 1, everyMinutes: 0 });
-    await run.start();
-    await run.startRun();
+    const run = await startAdvisor();
     await run.emit("tool", "start", "run-1", { toolCallId: "call-1" });
     await run.flush();
     expect(run.forkSession).not.toHaveBeenCalled();
@@ -161,56 +164,23 @@ describe("advisor", () => {
     expect(run.forkSession).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps an outer Code Mode call pending after its native children finish", async () => {
-    const run = setup({ everyToolCalls: 1, everyMinutes: 0 });
-    await run.start();
-    await run.startRun();
-    await run.emit("codex_app_server.item", "started", "run-1", {
-      itemId: "outer",
-      type: "custom_tool_call",
-    });
-    await run.emit("tool", "start", "run-1", { toolCallId: "child", itemId: "child" });
-    await run.emit("codex_app_server.item", "completed", "run-1", {
-      itemId: "child",
-      type: "commandExecution",
-    });
+  it.each([
+    ["outer", "child", "custom_tool_call", "custom_tool_call_output"],
+    ["x", "x", "function_call", "function_call_output"],
+  ])("keeps raw %s pending after native %s finishes", async (outer, child, call, output) => {
+    const run = await startAdvisor();
+    await run.item("started", outer, call);
+    await run.emit("tool", "start", "run-1", { toolCallId: child, itemId: child });
+    await run.item("completed", child, "commandExecution");
     await run.flush();
     expect(run.forkSession).not.toHaveBeenCalled();
-    await run.emit("codex_app_server.item", "completed", "run-1", {
-      itemId: "outer",
-      type: "custom_tool_call_output",
-    });
-    await run.flush();
-    expect(run.forkSession).toHaveBeenCalledOnce();
-  });
-
-  it("settles a raw call and its native child separately when they share an ID", async () => {
-    const run = setup({ everyToolCalls: 1, everyMinutes: 0 });
-    await run.start();
-    await run.startRun();
-    await run.emit("codex_app_server.item", "started", "run-1", {
-      itemId: "x",
-      type: "function_call",
-    });
-    await run.emit("tool", "start", "run-1", { toolCallId: "x", itemId: "x" });
-    await run.emit("codex_app_server.item", "completed", "run-1", {
-      itemId: "x",
-      type: "commandExecution",
-    });
-    await run.flush();
-    expect(run.forkSession).not.toHaveBeenCalled();
-    await run.emit("codex_app_server.item", "completed", "run-1", {
-      itemId: "x",
-      type: "function_call_output",
-    });
+    await run.item("completed", outer, output);
     await run.flush();
     expect(run.forkSession).toHaveBeenCalledOnce();
   });
 
   it("rechecks running calls when a queued review dispatches", async () => {
-    const run = setup({ everyToolCalls: 2, everyMinutes: 0 });
-    await run.start();
-    await run.startRun();
+    const run = await startAdvisor(2);
     await run.tool();
     await run.tool();
     // A third call starts after the review is queued but before the scheduler runs it.
@@ -225,9 +195,7 @@ describe("advisor", () => {
   it.each(["Looks fine to me.", "CORRECTION", "NO_CHANGE"])(
     "does not steer on a reply of %j",
     async (reply) => {
-      const run = setup({ everyToolCalls: 1, everyMinutes: 0 }, reply);
-      await run.start();
-      await run.startRun();
+      const run = await startAdvisor(1, reply);
       await run.tool();
       await run.flush();
       expect(run.forkSession).toHaveBeenCalledOnce();
