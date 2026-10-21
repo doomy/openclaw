@@ -1811,7 +1811,8 @@ uses V8 sampling at 32 KiB with both collected-object flags enabled; the report
 is allocation churn, not retained-heap delta. Raw profiles accompany `--output`,
 and the report includes the fifteen largest allocation sites with eight-frame
 stacks. `estimatedAuthPolicyStringifyBytesPerCheck` separately totals sampled
-allocations beneath `captureGatewayAuthPolicy` → `stableStringify`, including
+allocations beneath `captureGatewayAuthPolicy` → the stable-stringify serializer,
+including recursive serializer frames when V8 inlines the public wrapper and
 collected objects; zero samples are an estimate, not an exact invocation count. A post-capture positive control requires grant revocation to fail the
 very next retained-authority check. The recovery scenario also removes its
 allowed browser origin on a fresh config and requires the next source check to

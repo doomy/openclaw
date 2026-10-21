@@ -313,8 +313,13 @@ function summarizeProfile(root: SampleNode) {
   ) {
     const hasAuthPolicy =
       inAuthPolicy || node.callFrame.functionName === "captureGatewayAuthPolicy";
+    // V8 can inline the public wrapper while retaining its recursive serializer frames.
     const hasAuthStringify =
-      inAuthStringify || (hasAuthPolicy && node.callFrame.functionName === "stableStringify");
+      inAuthStringify ||
+      (hasAuthPolicy &&
+        (node.callFrame.functionName === "stableStringify" ||
+          node.callFrame.functionName === "stringifyStableValue" ||
+          node.callFrame.functionName === "stringifyObjectValue"));
     if (hasAuthStringify) {
       authPolicyStringifyBytes += node.selfSize;
     }
