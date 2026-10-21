@@ -1,14 +1,11 @@
 import { request } from "node:http";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 import {
   getAdmittedRunDelegatedAuthority,
   type AdmittedRunContext,
 } from "../agents/admitted-run-context.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-import {
-  startSecretEgressProxyServer,
-  type SecretEgressProxyHandle,
-} from "../secrets/egress-proxy/proxy-server.js";
+import { startSecretEgressProxyServer } from "../secrets/egress-proxy/proxy-server.js";
 import {
   clearSecretEgressProxy,
   publishSecretEgressProxy,
@@ -16,47 +13,39 @@ import {
 import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { createCronScriptRuntimeFixture as createCronScriptRuntime } from "./trigger-script.test-helpers.js";
 
-let state: Awaited<ReturnType<typeof createOpenClawTestState>> | undefined;
-let proxy: SecretEgressProxyHandle | undefined;
-
-afterEach(async () => {
-  vi.restoreAllMocks();
-  if (proxy) {
+it("revokes proxy grants after cold and warm trigger commands in a fresh agent", async () => {
+  const state = await createOpenClawTestState({
+    prefix: "openclaw-cron-secret-egress-",
+    layout: "state-only",
+    env: { OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1" },
+  });
+  onTestFinished(() => state.cleanup());
+  const config: OpenClawConfig = {
+    agents: {
+      defaults: { workspace: state.workspaceDir, skipBootstrap: true },
+      entries: { probe: { workspace: state.workspaceDir } },
+    },
+    plugins: { enabled: false },
+    tools: { exec: { host: "gateway", security: "full", ask: "off" } },
+    secrets: { egressProxy: { enabled: true } },
+  };
+  await state.writeConfig(config);
+  const proxy = await startSecretEgressProxyServer({
+    caDir: state.path("proxy-ca"),
+    onAudit: () => {},
+  });
+  onTestFinished(async () => {
+    vi.restoreAllMocks();
     clearSecretEgressProxy(proxy);
     await proxy.stop();
-    proxy = undefined;
-  }
-  await state?.cleanup();
-  state = undefined;
-});
-
-describe("cron script gateway exec with secret egress", () => {
-  it("revokes proxy grants after cold and warm trigger commands in a fresh agent", async () => {
-    state = await createOpenClawTestState({
-      prefix: "openclaw-cron-secret-egress-",
-      layout: "state-only",
-      env: { OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1" },
-    });
-    const config: OpenClawConfig = {
-      agents: {
-        defaults: { workspace: state.workspaceDir, skipBootstrap: true },
-        entries: { probe: { workspace: state.workspaceDir } },
-      },
-      plugins: { enabled: false },
-      tools: { exec: { host: "gateway", security: "full", ask: "off" } },
-      secrets: { egressProxy: { enabled: true } },
-    };
-    await state.writeConfig(config);
-    proxy = await startSecretEgressProxyServer({
-      caDir: state.path("proxy-ca"),
-      onAudit: () => {},
-    });
-    publishSecretEgressProxy(proxy);
-    const registrations = vi.spyOn(proxy, "registerProcess");
-    const runtime = createCronScriptRuntime({ config });
-    const admitted: AdmittedRunContext[] = [];
-    for (let index = 0; index < 2; index += 1) {
-      const params = {
+  });
+  publishSecretEgressProxy(proxy);
+  const registrations = vi.spyOn(proxy, "registerProcess");
+  const runtime = createCronScriptRuntime({ config });
+  const admitted: AdmittedRunContext[] = [];
+  for (let index = 0; index < 2; index += 1) {
+    await expect(
+      runtime.evaluateTrigger({
         jobId: "fresh-agent-check",
         agentId: "probe",
         script:
@@ -71,20 +60,18 @@ describe("cron script gateway exec with secret egress", () => {
             admitted.push(context);
           },
         },
-      };
-      await expect(runtime.evaluateTrigger(params)).resolves.toEqual({
-        kind: "evaluated",
-        fire: false,
-      });
-      expect(admitted).toHaveLength(index + 1);
-      expect(getAdmittedRunDelegatedAuthority(admitted[index]!)).toBeUndefined();
-      expect(registrations).toHaveBeenCalledTimes(index + 1);
-      const registration = registrations.mock.results[index];
-      if (registration?.type !== "return") {
-        throw new Error("Expected the command's proxy grant");
-      }
-      const url = new URL(registration.value.env.HTTPS_PROXY!);
-      const statusCode = await new Promise<number | undefined>((resolve, reject) => {
+      }),
+    ).resolves.toEqual({ kind: "evaluated", fire: false });
+    expect(admitted).toHaveLength(index + 1);
+    expect(getAdmittedRunDelegatedAuthority(admitted[index]!)).toBeUndefined();
+    expect(registrations).toHaveBeenCalledTimes(index + 1);
+    const registration = registrations.mock.results[index];
+    if (registration?.type !== "return") {
+      throw new Error("Expected the command's proxy grant");
+    }
+    const url = new URL(registration.value.env.HTTPS_PROXY!);
+    await expect(
+      new Promise<number | undefined>((resolve, reject) => {
         const req = request(
           {
             hostname: url.hostname,
@@ -100,11 +87,9 @@ describe("cron script gateway exec with secret egress", () => {
             resolve(response.statusCode);
           },
         );
-        req.on("error", reject);
-        req.end();
-      });
-      expect(statusCode).toBe(407);
-    }
-    expect(admitted[1]?.operationalRunInstance).not.toEqual(admitted[0]?.operationalRunInstance);
-  });
+        req.on("error", reject).end();
+      }),
+    ).resolves.toBe(407);
+  }
+  expect(admitted[1]?.operationalRunInstance).not.toEqual(admitted[0]?.operationalRunInstance);
 });

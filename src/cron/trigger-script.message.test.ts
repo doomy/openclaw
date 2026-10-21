@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 import type { AdmittedRunContext } from "../agents/admitted-run-context.js";
 import { resolveToolSearchConfig } from "../agents/tool-search-config.js";
 import { ToolSearchRuntime } from "../agents/tool-search-runtime.js";
@@ -17,26 +17,16 @@ import { createOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { bindCronJobAdmittedRun, clearCronJobActive, markCronJobActive } from "./active-jobs.js";
 import { createCronScriptRuntimeFixture } from "./trigger-script.test-helpers.js";
 
-let state: Awaited<ReturnType<typeof createOpenClawTestState>>;
-let registrySnapshot: ReturnType<typeof captureActivePluginRegistrySnapshot>;
-
-beforeAll(async () => {
-  state = await createOpenClawTestState({ prefix: "openclaw-cron-script-message-" });
-  registrySnapshot = captureActivePluginRegistrySnapshot();
-});
-
-afterEach(() => {
-  clearRuntimeConfigSnapshot();
-  restoreActivePluginRegistrySnapshot(registrySnapshot);
-});
-
-afterAll(async () => {
-  await state.cleanup();
-});
-
 it.each(["captured", "legacy"] as const)(
   "gates %s payload message delivery on its occurrence fence, including a warm invocation",
   async (policy) => {
+    const state = await createOpenClawTestState({ prefix: "openclaw-cron-script-message-" });
+    const registrySnapshot = captureActivePluginRegistrySnapshot();
+    onTestFinished(async () => {
+      clearRuntimeConfigSnapshot();
+      restoreActivePluginRegistrySnapshot(registrySnapshot);
+      await state.cleanup();
+    });
     const config: OpenClawConfig = {
       agents: { defaults: { workspace: state.workspaceDir, skipBootstrap: true } },
       tools: { allow: ["message"] },
@@ -63,6 +53,7 @@ it.each(["captured", "legacy"] as const)(
     setActivePluginRegistry(registry);
     const jobId = "script-message-payload";
     const marker = markCronJobActive(jobId, { isMessageActionAuthorityCurrent: () => true });
+    onTestFinished(() => clearCronJobActive(jobId, marker));
     const controller = new AbortController();
     let rejectDelivery = true;
     const beforeAttempt = vi.fn(async () => {
@@ -104,21 +95,15 @@ it.each(["captured", "legacy"] as const)(
       },
     };
     const invoke = () => runtime.executePayload(params);
-    try {
-      await expect(invoke()).resolves.toMatchObject({
-        kind: "error",
-        error: expect.stringContaining("occurrence delivery fence unavailable"),
-      });
-      expect(beforeAttempt).toHaveBeenCalledOnce();
-      expect(sendText).not.toHaveBeenCalled();
-      rejectDelivery = false;
-      await expect(invoke()).resolves.toMatchObject({
-        kind: "completed",
-      });
-      expect(beforeAttempt).toHaveBeenCalledTimes(2);
-      expect(sendText).toHaveBeenCalledOnce();
-    } finally {
-      clearCronJobActive(jobId, marker);
-    }
+    await expect(invoke()).resolves.toMatchObject({
+      kind: "error",
+      error: expect.stringContaining("occurrence delivery fence unavailable"),
+    });
+    expect(beforeAttempt).toHaveBeenCalledOnce();
+    expect(sendText).not.toHaveBeenCalled();
+    rejectDelivery = false;
+    await expect(invoke()).resolves.toMatchObject({ kind: "completed" });
+    expect(beforeAttempt).toHaveBeenCalledTimes(2);
+    expect(sendText).toHaveBeenCalledOnce();
   },
 );
