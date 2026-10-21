@@ -66,18 +66,15 @@ it("does not satisfy Full Contributor access with its similarly labeled sibling"
 });
 
 it("keeps meaningful provider labels and unknown future IDs without guessing an offering", async () => {
+  const makeModel = (modelId: string, displayLabel = modelId) => ({
+    modelId,
+    displayLabel,
+    providerId: "meta",
+  });
   const models = [
-    {
-      modelId: "muse-wonder-full-1.0-contributor",
-      displayLabel: "Official Full Subscriber Label",
-      providerId: "meta",
-    },
-    {
-      modelId: "muse-wonder-2.0-contributor",
-      displayLabel: "muse-wonder-2.0-contributor",
-      providerId: "meta",
-    },
-    { modelId: "future-opaque-id", displayLabel: "Provider's New Model", providerId: "meta" },
+    makeModel("muse-wonder-full-1.0-contributor", "Official Full Subscriber Label"),
+    makeModel("muse-wonder-2.0-contributor"),
+    makeModel("future-opaque-id", "Provider's New Model"),
   ];
   const modelIds = [...expected.map((row) => row.id), ...models.map((row) => row.modelId)];
   await catalog({ source: "providerCatalog", providerId: "meta", models });
