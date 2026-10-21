@@ -322,7 +322,7 @@ suite.define(() => {
       );
     }
 
-    // A session hovercard can cover the pane's upper-left transcript area.
+    // Activate through the composer; a retained hovercard can cover a pane-relative pixel.
     await panes.first().locator(".agent-chat__composer-combobox textarea").click();
     await expect.poll(() => cells.first().getAttribute("class")).toContain("--active");
     await expect.poll(visibleActionLabels).toEqual([activeActions, ["Details"]]);
