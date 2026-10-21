@@ -69,7 +69,9 @@ describe("Comfy workflow deadline", () => {
         new Response("second", { headers: { "content-type": contentType } }),
       ];
       fetchMock.mockImplementation(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        await new Promise((resolve) => {
+          setTimeout(resolve, 20);
+        });
         return { response: responses.shift(), release };
       });
       const result = generate(capability).catch((error: unknown) => error);
