@@ -23,7 +23,6 @@ export function AssistantPanelView(props: {
   onContentLoaded: () => void;
 }): JSX.Element {
   const state = () => props.state();
-  const resizer = () => state().dockLayout.resizer;
   const visible = () => state().available() && state().dockLayout.open;
   const dock = () => state().dockLayout.dock;
   const waitingForHome = () => state().destination() === "home" && !state().homeStarted();
@@ -37,36 +36,23 @@ export function AssistantPanelView(props: {
     const destination = state().destination();
     return typeof destination === "string" ? destination : "session";
   };
-  const contentDefined = () => state().contentDefined();
   const style = () =>
     dock() === "bottom"
       ? `height:${state().dockLayout.height}px`
       : `width:${state().dockLayout.width}px`;
   return (
     <section
-      class={[
-        "assistant-panel",
-        {
-          "assistant-panel--right": dock() === "right",
-          "assistant-panel--bottom": dock() === "bottom",
-        },
-      ]}
+      class={["assistant-panel", `assistant-panel--${dock()}`]}
       style={style()}
       hidden={!visible()}
       aria-label={t("assistantPanel.title")}
       onPointerDown={() => state().claimInput("dock")}
       onFocusIn={() => state().claimInput("dock")}
     >
-      <Show when={resizer()}>
+      <Show when={state().dockLayout.resizer}>
         {(geometry) => (
           <resizable-divider
-            class={[
-              "assistant-panel-resizer",
-              {
-                "assistant-panel-resizer--right": dock() === "right",
-                "assistant-panel-resizer--bottom": dock() === "bottom",
-              },
-            ]}
+            class={["assistant-panel-resizer", `assistant-panel-resizer--${dock()}`]}
             prop:orientation={geometry().orientation}
             prop:label={t("assistantPanel.resize")}
             prop:splitRatio={geometry().splitRatio}
@@ -150,7 +136,7 @@ export function AssistantPanelView(props: {
           </button>
         </div>
       </header>
-      <Show when={contentDefined() || state().shouldLoadContent()}>
+      <Show when={state().contentDefined() || state().shouldLoadContent()}>
         {(_shown) => {
           // The boundary reports rejection; success still notifies a dismissed view.
           void Content.preload().then(
@@ -199,13 +185,7 @@ export function AssistantPanelView(props: {
                 );
               }}
             >
-              <Loading
-                fallback={
-                  <Show when={!waitingForHome()}>
-                    <AssistantPanelLoading />
-                  </Show>
-                }
-              >
+              <Loading fallback={waitingForHome() ? undefined : <AssistantPanelLoading />}>
                 <Content
                   hidden={!contentActive()}
                   active={contentActive()}
