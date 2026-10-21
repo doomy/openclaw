@@ -30,6 +30,14 @@ async function mount(props: Record<string, unknown>) {
 
 afterEach(() => document.body.replaceChildren());
 
+function chart(style: "bar" | "line", values: readonly number[]) {
+  return {
+    type: "chart" as const,
+    style,
+    points: values.map((value, index) => ({ label: `Point ${index + 1}`, value })),
+  };
+}
+
 describe("native report widget", () => {
   it("renders escaped report data with accessible metrics, tables, charts, and links", async () => {
     const markup = '<img src="https://example.com/tracker"> stays text.';
@@ -46,15 +54,7 @@ describe("native report widget", () => {
             ["UI", "7"],
           ],
         },
-        {
-          type: "chart",
-          title: "Trend",
-          style: "line",
-          points: [
-            { label: "Before", value: -3 },
-            { label: "After", value: 6 },
-          ],
-        },
+        { ...chart("line", [-3, 6]), title: "Trend" },
         {
           type: "links",
           title: "References",
@@ -65,30 +65,23 @@ describe("native report widget", () => {
       ],
     } satisfies BoardReport;
     const element = await mount(report);
+    const texts = (selector: string) =>
+      [...element.querySelectorAll(selector)].map((node) => node.textContent);
     expect(element.querySelector("article")?.getAttribute("aria-label")).toBe("Weekly report");
     expect(element.textContent).toContain(markup);
     expect(element.querySelector("script,img,iframe,style")).toBeNull();
-    expect(element.querySelector(".board-report__metrics dt")?.textContent).toBe("Resolved");
-    expect(element.querySelector(".board-report__metrics dd")?.textContent).toBe("24");
+    expect(texts(".board-report__metrics dt")).toEqual(["Resolved"]);
+    expect(texts(".board-report__metrics dd")).toEqual(["24", "Up by six"]);
     expect(element.querySelector("caption")?.textContent?.trim()).toBe("Teams");
-    expect([...element.querySelectorAll("th[scope=col]")].map((cell) => cell.textContent)).toEqual([
-      "Team",
-      "Count",
-    ]);
-    expect([...element.querySelectorAll("tbody td")].map((cell) => cell.textContent)).toEqual([
-      "Core",
-      "17",
-      "UI",
-      "7",
-    ]);
+    expect(texts("th[scope=col]")).toEqual(["Team", "Count"]);
+    expect(texts("tbody td")).toEqual(["Core", "17", "UI", "7"]);
     expect(element.querySelector("polyline")?.namespaceURI).toBe("http://www.w3.org/2000/svg");
-    expect(
-      [...element.querySelectorAll(".board-report__values dd")].map((value) => value.textContent),
-    ).toEqual(["-3", "6"]);
-    const link = element.querySelector("a");
-    expect(link?.href).toBe("https://example.com/report");
-    expect(link?.target).toBe("_blank");
-    expect(link?.rel).toBe("noopener noreferrer");
+    expect(texts(".board-report__values dd")).toEqual(["-3", "6"]);
+    expect(element.querySelector("a")).toMatchObject({
+      href: "https://example.com/report",
+      target: "_blank",
+      rel: "noopener noreferrer",
+    });
   });
 
   it.each([
@@ -97,15 +90,7 @@ describe("native report widget", () => {
     { style: "line", values: [0] },
     { style: "line", values: [-Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER] },
   ] as const)("keeps $style geometry finite for $values", async ({ style, values }) => {
-    const element = await mount({
-      blocks: [
-        {
-          type: "chart",
-          style,
-          points: values.map((value, index) => ({ label: `Point ${index + 1}`, value })),
-        },
-      ],
-    });
+    const element = await mount({ blocks: [chart(style, values)] });
     const svg = element.querySelector("svg");
     expect(svg).not.toBeNull();
     expect(svg?.outerHTML).not.toMatch(/NaN|Infinity/);
