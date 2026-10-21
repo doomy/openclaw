@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { resolveUpdateBuildManager } from "./update-package-manager.js";
 
@@ -17,6 +18,22 @@ async function checkout(version: string) {
   await fs.writeFile(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
   return root;
 }
+
+it("returns a package-manager failure when the probe directory cannot be allocated", async () => {
+  const root = await checkout("12.0.0");
+  const tmpdir = vi.spyOn(os, "tmpdir").mockReturnValue(path.join(root, "missing"));
+  const runCommand = vi.fn<PackageManagerCommandRunner>();
+  try {
+    await expect(resolveUpdateBuildManager(runCommand, root, 5_000)).resolves.toEqual({
+      kind: "missing-required",
+      preferred: "pnpm",
+      reason: "pnpm-corepack-missing",
+    });
+    expect(runCommand).not.toHaveBeenCalled();
+  } finally {
+    tmpdir.mockRestore();
+  }
+});
 
 describe.each(["corepack", "npm"])("%s bootstrap deadlines", (installer) => {
   it.each([

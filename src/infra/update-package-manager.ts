@@ -100,17 +100,18 @@ export async function resolveUpdateBuildManager(
   const pin = await readPackageManagerSpec(root);
   const pnpmVersion = parsePnpmPackageManagerVersion(pin);
   if (preferred === "pnpm") {
-    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-update-pnpm-"));
-    const cleanup = async () => {
-      await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => {});
-    };
-    const targetEnv = pnpmCommandEnv(baseEnv, root);
-    const probeEnv = pnpmCommandEnv(baseEnv, tempRoot);
-    const probeCommand: PackageManagerCommandRunner = (argv, options) =>
-      commandRunner(argv, { ...options, cwd: tempRoot });
+    let cleanup: (() => Promise<void>) | undefined;
     let retained = false;
     let reason: UpdatePackageManagerFailureReason = "pnpm-corepack-missing";
     try {
+      const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-update-pnpm-"));
+      cleanup = async () => {
+        await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => {});
+      };
+      const targetEnv = pnpmCommandEnv(baseEnv, root);
+      const probeEnv = pnpmCommandEnv(baseEnv, tempRoot);
+      const probeCommand: PackageManagerCommandRunner = (argv, options) =>
+        commandRunner(argv, { ...options, cwd: tempRoot });
       // An ambient pnpm can rewrite a lockfile before switching versions, even for --version.
       // Keep its probe unpinned and outside any ancestor pnpm workspace.
       await fs.writeFile(path.join(tempRoot, "package.json"), JSON.stringify({ private: true }));
@@ -172,7 +173,7 @@ export async function resolveUpdateBuildManager(
       // Preparation failures keep the existing visible failure result and cleanup owner.
     } finally {
       if (!retained) {
-        await cleanup();
+        await cleanup?.();
       }
     }
     return { kind: "missing-required", preferred, reason };
