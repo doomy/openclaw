@@ -322,11 +322,8 @@ suite.define(() => {
       );
     }
 
-    // Resizing can leave a sidebar hovercard over the pane's click target.
-    await page.mouse.move(0, 0);
-    await page.keyboard.press("Escape");
-    await page.locator(".session-progress-hovercard").waitFor({ state: "hidden" });
-    await panes.first().click({ position: { x: 20, y: 80 } });
+    // Activate through the composer; a retained hovercard can cover a pane-relative pixel.
+    await panes.first().locator(".agent-chat__composer-combobox textarea").click();
     await expect.poll(() => cells.first().getAttribute("class")).toContain("--active");
     await expect.poll(visibleActionLabels).toEqual([activeActions, ["Details"]]);
     expect(await headers.first().locator(".chat-header-session-menu__trigger").isVisible()).toBe(
@@ -349,7 +346,7 @@ suite.define(() => {
     ]);
 
     const lastPane = page.locator(".chat-split-view__pane").last();
-    await lastPane.click({ position: { x: 20, y: 80 } });
+    await lastPane.locator(".agent-chat__composer-combobox textarea").click();
     await expect.poll(() => cells.last().getAttribute("class")).toContain("--active");
     await expect.poll(visibleActionLabels).toEqual([["Details"], activeActions]);
     expect(await headers.last().locator(".chat-header-session-menu__trigger").isVisible()).toBe(
