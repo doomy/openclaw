@@ -212,6 +212,17 @@ export function currentDisplayConfig(state: RuntimeConfigState): Record<string, 
 export function currentDisplayRuntimeConfig(
   state: RuntimeConfigState,
 ): Record<string, unknown> | null {
+  return (
+    (!staleConfigSnapshots.has(state) ? state.configSnapshot?.runtimeConfig : null) ??
+    state.bootstrapConfig ??
+    null
+  );
+}
+
+/** Speech's full-read fallback also accepts config-only snapshots. */
+export function currentDisplaySpeechConfig(
+  state: RuntimeConfigState,
+): Record<string, unknown> | null {
   const snapshot = !staleConfigSnapshots.has(state) ? state.configSnapshot : null;
   return snapshot?.runtimeConfig ?? snapshot?.config ?? state.bootstrapConfig ?? null;
 }

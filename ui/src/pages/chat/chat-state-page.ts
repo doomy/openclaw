@@ -14,7 +14,7 @@ import { loadLocalUserIdentity, loadSettings, patchSettings } from "../../app/se
 import { retryStaleChunkReloadWhenReachable } from "../../app/stale-chunk-reload.ts";
 import { hasSameOriginGatewayTransport } from "../../dev-gateway.ts";
 import { parseSlashCommand } from "../../lib/chat/commands.ts";
-import { currentDisplayRuntimeConfig } from "../../lib/config/config-state-model.ts";
+import { currentDisplaySpeechConfig } from "../../lib/config/config-state-model.ts";
 import { hasUnrestrictedModelCatalogSnapshot } from "../../lib/model-catalog-cache.ts";
 import { resolveSafeExternalUrl } from "../../lib/open-external-url.ts";
 import { projectOwner, projectSource } from "../../lib/reactive/projection.ts";
@@ -312,10 +312,10 @@ export function createPageState(
         expectedLeafEntryId: resolveDisplayedLeafEntryId(state),
       }),
     async () => {
-      let config = currentDisplayRuntimeConfig(context.runtimeConfig.state);
+      let config = currentDisplaySpeechConfig(context.runtimeConfig.state);
       if (!config || !Object.hasOwn(config, "tts")) {
         await context.runtimeConfig.ensureLoaded();
-        config = currentDisplayRuntimeConfig(context.runtimeConfig.state);
+        config = currentDisplaySpeechConfig(context.runtimeConfig.state);
       }
       return resolveSpeechTextLimit(config);
     },
