@@ -22,12 +22,8 @@ const batch: DecisionBatch = {
     urgency: { type: "score", criteria: ["Low", { impact: "High" }] },
   },
 };
-const choice = {
-  type: "choice",
-  choice: "support",
-  probabilities: { support: 0.8, sales: 0.19 },
-  confidence: 0.61,
-};
+const probabilities = { support: 0.8, sales: 0.19 };
+const choice = { type: "choice", choice: "support", probabilities, confidence: 0.61 };
 const result = () => ({
   model: "subq-snap-preview",
   answers: {
@@ -44,36 +40,33 @@ const result = () => ({
   usage: { input_tokens: 477, output_tokens: 0 },
 });
 type Context = Parameters<DecisionProviderV1["evaluate"]>[1];
-const context = (overrides: Partial<Context> = {}): Context => ({
-  model: "subq-snap-preview",
-  signal: new AbortController().signal,
-  deadlineMonotonicMs: performance.now() + 30_000,
-  ...overrides,
-});
-function provider() {
-  const registerDecisionProvider = vi.fn<OpenClawPluginApi["registerDecisionProvider"]>();
-  plugin.register({ registerDecisionProvider } as unknown as OpenClawPluginApi);
-  const registered = registerDecisionProvider.mock.calls[0]?.[0];
-  assert(registered);
-  assert(registered.contractVersion === 1, "Expected the SubQ V1 decision provider");
-  return registered;
-}
+let selected: DecisionProviderV1;
+const fetch = vi.fn<(url: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
+const evaluate = (overrides: Partial<Context> = {}, input = batch) =>
+  selected.evaluate(input, {
+    model: "subq-snap-preview",
+    signal: new AbortController().signal,
+    deadlineMonotonicMs: performance.now() + 30_000,
+    ...overrides,
+  });
 const unavailable = (reason: ProviderFailureReason) => ({ status: "unavailable", reason });
 const withQuestions = (questions: DecisionBatch["questions"]): DecisionBatch => ({
   ...batch,
   questions,
 });
-function mockFetch(response = Response.json(result())) {
-  const fetch = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => response);
-  vi.stubGlobal("fetch", fetch);
-  return fetch;
-}
-
 beforeEach(() => {
+  vi.stubEnv("SUBQ_API_KEY", "synthetic-ambient");
   vi.mocked(getPreparedPluginSecretInput).mockReturnValue({
     revision: 1,
     value: "synthetic-subq-key",
   });
+  const registerDecisionProvider = vi.fn<OpenClawPluginApi["registerDecisionProvider"]>();
+  plugin.register({ registerDecisionProvider } as unknown as OpenClawPluginApi);
+  const registered = registerDecisionProvider.mock.calls[0]?.[0];
+  assert(registered?.contractVersion === 1, "Expected the SubQ V1 decision provider");
+  selected = registered;
+  fetch.mockReset().mockImplementation(async () => Response.json(result()));
+  vi.stubGlobal("fetch", fetch);
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -82,8 +75,7 @@ afterEach(() => {
 });
 
 it("posts the documented typed contract and preserves fractional/rounded results", async () => {
-  const fetch = mockFetch();
-  expect(await provider().evaluate(batch, context())).toEqual({
+  expect(await evaluate()).toEqual({
     status: "ok",
     result: {
       model: "subq-snap-preview",
@@ -121,22 +113,19 @@ it.each([
   [422, "unsupported-input"],
   [429, "rate-limited"],
   [503, "transport"],
-] as const)(
-  "classifies HTTP %s without reading private errors or retrying",
-  async (status, reason) => {
-    const fetch = mockFetch(
-      new Response("synthetic-subq-key: private ticket", {
-        status,
-        headers: { "Retry-After": "2" },
-      }),
-    );
-    expect(await provider().evaluate(batch, context())).toEqual({
-      ...unavailable(reason),
-      ...(status === 429 ? { retryAfterMs: 2000 } : {}),
-    });
-    expect(fetch).toHaveBeenCalledOnce();
-  },
-);
+] as const)("classifies HTTP %s without leaking errors or retrying", async (status, reason) => {
+  fetch.mockResolvedValue(
+    new Response("synthetic-subq-key: private ticket", {
+      status,
+      headers: { "Retry-After": "2" },
+    }),
+  );
+  expect(await evaluate()).toEqual({
+    ...unavailable(reason),
+    ...(status === 429 ? { retryAfterMs: 2000 } : {}),
+  });
+  expect(fetch).toHaveBeenCalledOnce();
+});
 
 it.each<DecisionBatch>([
   { ...batch, state: null },
@@ -153,27 +142,18 @@ it.each<DecisionBatch>([
   }),
   withQuestions({ q: { type: "score", criteria: Array(11).fill("level") } }),
 ])("rejects vendor-specific input bounds before buying a request", async (input) => {
-  const fetch = mockFetch();
-  expect(await provider().evaluate(input, context())).toEqual(unavailable("unsupported-input"));
+  expect(await evaluate({}, input)).toEqual(unavailable("unsupported-input"));
   expect(fetch).not.toHaveBeenCalled();
 });
 
 it("rejects chat model IDs and observes prepared credential rotation/loss, not ambient keys", async () => {
-  vi.stubEnv("SUBQ_API_KEY", "synthetic-ambient");
-  const selected = provider();
-  const fetch = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
-    Response.json(result()),
-  );
-  vi.stubGlobal("fetch", fetch);
-  expect(await selected.evaluate(batch, context({ model: "subq-preview" }))).toEqual(
-    unavailable("unsupported-input"),
-  );
+  expect(await evaluate({ model: "subq-preview" })).toEqual(unavailable("unsupported-input"));
   expect(fetch).not.toHaveBeenCalled();
   for (const value of ["synthetic-rotated", undefined, "synthetic-restored"]) {
     vi.mocked(getPreparedPluginSecretInput).mockReturnValue({ revision: 2, value });
     fetch.mockClear();
     expect(selected.isReady?.()).toBe(Boolean(value));
-    const outcome = await selected.evaluate(batch, context());
+    const outcome = await evaluate();
     if (value) {
       expect(outcome.status).toBe("ok");
       expect(new Headers(fetch.mock.lastCall?.[1]?.headers).get("Authorization")).toBe(
@@ -199,54 +179,40 @@ it.each<[string, (payload: ReturnType<typeof result>) => unknown]>([
 ])("rejects %s without partial output or another request", async (_kind, mutate) => {
   const payload = result();
   mutate(payload);
-  const fetch = mockFetch(Response.json(payload));
-  expect(await provider().evaluate(batch, context())).toEqual(unavailable("invalid-response"));
+  fetch.mockResolvedValue(Response.json(payload));
+  expect(await evaluate()).toEqual(unavailable("invalid-response"));
   expect(fetch).toHaveBeenCalledOnce();
 });
 
 it("rejects malformed and oversized responses", async () => {
   for (const body of ["not-json", "x".repeat(1024 * 1024 + 1)]) {
-    mockFetch(new Response(body));
-    expect(await provider().evaluate(batch, context())).toEqual(unavailable("invalid-response"));
+    fetch.mockResolvedValue(new Response(body));
+    expect(await evaluate()).toEqual(unavailable("invalid-response"));
   }
 });
 
 it("does not dispatch after cancellation, lost admission, or an exhausted deadline", async () => {
-  const fetch = mockFetch();
-  const selected = provider();
   const controller = new AbortController();
   controller.abort(new Error("caller closed"));
-  await expect(selected.evaluate(batch, context({ signal: controller.signal }))).rejects.toThrow(
-    "caller closed",
-  );
-  expect(await selected.evaluate(batch, context({ isAdmissible: () => false }))).toEqual(
-    unavailable("transport"),
-  );
-  expect(await selected.evaluate(batch, context({ deadlineMonotonicMs: 0 }))).toEqual(
-    unavailable("transport"),
-  );
+  await expect(evaluate({ signal: controller.signal })).rejects.toThrow("caller closed");
+  expect(await evaluate({ isAdmissible: () => false })).toEqual(unavailable("transport"));
+  expect(await evaluate({ deadlineMonotonicMs: 0 })).toEqual(unavailable("transport"));
   await expect(
-    selected.evaluate(
-      batch,
-      context({
-        isAdmissible: () => {
-          throw new Error("authority closed");
-        },
-      }),
-    ),
+    evaluate({
+      isAdmissible: () => {
+        throw new Error("authority closed");
+      },
+    }),
   ).rejects.toThrow("authority closed");
   expect(fetch).not.toHaveBeenCalled();
 });
 
 it("keeps in-flight caller cancellation terminal", async () => {
   const controller = new AbortController();
-  const fetch = vi.fn(async () => {
+  fetch.mockImplementation(async () => {
     controller.abort(new Error("caller closed"));
     throw new Error("private network error");
   });
-  vi.stubGlobal("fetch", fetch);
-  await expect(provider().evaluate(batch, context({ signal: controller.signal }))).rejects.toThrow(
-    "caller closed",
-  );
+  await expect(evaluate({ signal: controller.signal })).rejects.toThrow("caller closed");
   expect(fetch).toHaveBeenCalledOnce();
 });
