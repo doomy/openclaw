@@ -32,20 +32,18 @@ function actorHistoryFixture() {
     storePath: "/synthetic/incognito.sqlite",
   };
   const { upstreamPrompt, settledMessages } = settledFixture();
+  const messages: CodexSessionContextSnapshot["messages"] = [
+    { role: "user", content: "Earlier synthetic context.", timestamp: 1 },
+    ...settledMessages,
+  ];
   const snapshot: CodexSessionContextSnapshot = {
     header: { type: "session", id: sessionTarget.sessionId },
-    messages: [
-      { role: "user", content: "Earlier synthetic context.", timestamp: 1 },
-      ...settledMessages,
-    ],
+    messages,
   };
   const owner = {
     assertCurrent(target: Parameters<CodexSessionContextReader>[0]) {
       if (
-        target.agentId !== sessionTarget.agentId ||
-        target.sessionId !== sessionTarget.sessionId ||
-        target.sessionKey !== sessionTarget.sessionKey ||
-        target.storePath !== sessionTarget.storePath
+        Object.entries(sessionTarget).some(([key, value]) => Reflect.get(target, key) !== value)
       ) {
         throw new Error("History capability belongs to another actor target");
       }
@@ -57,6 +55,7 @@ function actorHistoryFixture() {
   return {
     owner,
     reader: createCodexSessionContextReader(owner),
+    messages,
     upstreamPrompt,
     target: {
       ...sessionTarget,
@@ -116,7 +115,7 @@ describe("Codex actor history adapter", () => {
   it("resolves marker-only history through unbound memory routing without host SQL", async () => {
     setRuntimeConfigSnapshot({});
     const env = { OPENCLAW_STATE_DIR: tempDirs.make("codex-marker-actor-") };
-    const { target, upstreamPrompt } = actorHistoryFixture();
+    const { target, upstreamPrompt, messages } = actorHistoryFixture();
     const sessionTarget = {
       ...target.sessionTarget,
       env,
@@ -135,10 +134,7 @@ describe("Codex actor history adapter", () => {
       });
       await appendSessionTranscriptMessagesByIdentity({
         ...sessionTarget,
-        messages: [
-          { role: "user" as const, content: "Earlier synthetic context.", timestamp: 1 },
-          ...target.settledMessages,
-        ].map((message) => ({ message })),
+        messages: messages.map((message) => ({ message })),
       });
       const sql = observeHostDataSql();
       try {
