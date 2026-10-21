@@ -154,6 +154,15 @@ export function canvasPreviewBaseIdentity(
     : null;
 }
 
+export function canvasAssistantItemKey(
+  message: unknown,
+  source: Parameters<typeof canvasPreviewBaseIdentity>[1],
+  fallback: string,
+): string {
+  const identity = canvasPreviewBaseIdentity(message, source);
+  return identity ? `canvas:${identity}` : `${fallback}:canvas`;
+}
+
 export function createCanvasAssistantMessage(
   source: ChatMessagePreview,
   timestamp: number | null,

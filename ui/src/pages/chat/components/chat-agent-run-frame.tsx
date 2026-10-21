@@ -14,9 +14,10 @@ import {
   Switch,
   type Accessor,
 } from "solid-js";
+import { registerChatComposerEnglish } from "../../../i18n/locales/en-chat-composer.ts";
 import type { MessageGroup as MessageGroupData } from "../../../lib/chat/chat-types.ts";
 import { extractChatSourcePreviews } from "../../../lib/chat/source-previews.ts";
-import { t } from "../../../lib/reactive/i18n.ts";
+import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import {
   agentRunFrameActiveStatusParts,
   chatItemGroups,
@@ -41,6 +42,8 @@ import { resolveGroupReplyLine } from "./chat-reply-attribution.ts";
 import { ChatSourcePreviews } from "./chat-source-previews.tsx";
 import { BrowserTabPreviews } from "./chat-tool-cards.solid.tsx";
 import { selectWorkGroupBrowserTabPreviews } from "./chat-tool-cards.ts";
+
+registerEnglishCatalog(registerChatComposerEnglish);
 
 type AgentRunFrameOptions = {
   basePath?: string;

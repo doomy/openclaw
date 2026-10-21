@@ -1,7 +1,8 @@
 import { createMemo } from "solid-js";
+import { registerChatComposerEnglish } from "../../../i18n/locales/en-chat-composer.ts";
 import { clearCompositionEnd } from "../../../lib/ime.ts";
 import { elementRef } from "../../../lib/reactive/element-ref.ts";
-import { t } from "../../../lib/reactive/i18n.ts";
+import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import { liveValue } from "../../../lib/reactive/live-value.ts";
 import { detectTextDirection } from "../../../lib/text-direction.ts";
 import { insertComposerDictation } from "../composer-dictation.ts";
@@ -12,6 +13,8 @@ import {
 } from "./chat-composer-dom.ts";
 import type { createChatComposerContext } from "./chat-composer-frame.ts";
 import type { ChatComposerProps, ChatComposerState } from "./chat-composer-types.ts";
+
+registerEnglishCatalog(registerChatComposerEnglish);
 
 export type ComposerTextareaProps = {
   scopeKey: string;

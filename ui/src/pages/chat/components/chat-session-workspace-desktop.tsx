@@ -3,7 +3,8 @@ import { createMemo, createSignal, createUniqueId, For, onSettled, Show } from "
 import { Icon } from "../../../components/solid/icon.tsx";
 import { Menu } from "../../../components/solid/menu.tsx";
 import { PanelLoadingSkeleton } from "../../../components/solid/panel-loading-skeleton.tsx";
-import { t } from "../../../lib/reactive/i18n.ts";
+import { registerChatSessionEnglish } from "../../../i18n/locales/en-chat-session.ts";
+import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import { createLayoutMeasurement } from "../../../lib/reactive/layout-measurement.ts";
 import { liveValue } from "../../../lib/reactive/live-value.ts";
 import { createPendingFocus } from "../../../lib/reactive/pending-focus.ts";
@@ -25,9 +26,11 @@ import {
 import { FolderDisclosure } from "./chat-session-workspace-disclosure.tsx";
 import type { SessionWorkspaceFilter } from "./chat-sidebar-content-types.ts";
 import type { SessionWorkspaceProps } from "./chat-sidebar-view-types.ts";
-import { hasTranscriptAttachments } from "./chat-transcript-attachments.ts";
 import "../../../styles/session-panel-rail.css";
 import "./chat-session-workspace-desktop.css";
+import { hasTranscriptAttachments } from "./chat-transcript-attachments.ts";
+
+registerEnglishCatalog(registerChatSessionEnglish);
 
 function WorkspaceFilename(props: { name: string }) {
   const parts = createMemo(() => splitWorkspaceFilename(props.name));

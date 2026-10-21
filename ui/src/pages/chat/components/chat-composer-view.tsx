@@ -9,10 +9,11 @@ import "../../../styles/chat/composer-surface.css";
 import "../../../styles/chat/composer-mobile.css";
 import { Icon } from "../../../components/solid/icon.tsx";
 import { McpAppContextStrip } from "../../../components/solid/mcp-app-context-strip.tsx";
+import { registerChatComposerEnglish } from "../../../i18n/locales/en-chat-composer.ts";
 import { elementRef } from "../../../lib/reactive/element-ref.ts";
-import { t } from "../../../lib/reactive/i18n.ts";
-import { PaneSubagentStop } from "../chat-pane-header-view.tsx";
+import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import "../../../styles/chat/composer-context-strip.css";
+import { PaneSubagentStop } from "../chat-pane-header-view.tsx";
 import { ChatActivityPills } from "./chat-activity-pills.tsx";
 import { createChatAttachmentInputHandle } from "./chat-attachment-inputs.ts";
 import { ChatAttachmentInputs } from "./chat-attachment-inputs.tsx";
@@ -44,6 +45,8 @@ import type { ChatComposerProps, ChatComposerState } from "./chat-composer-types
 import { isPastedTextAttachment } from "./chat-pasted-text.ts";
 import { ChatPermissionPicker } from "./chat-permission-picker.tsx";
 import { ChatVoiceStatus, ComposerDictationStatus } from "./chat-voice-activity.tsx";
+
+registerEnglishCatalog(registerChatComposerEnglish);
 
 type ChatComposerViewContext = ReturnType<typeof createChatComposerContext>;
 

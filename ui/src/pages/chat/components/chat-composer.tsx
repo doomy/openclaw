@@ -7,8 +7,6 @@ import {
   onSettled,
   untrack,
 } from "solid-js";
-import { registerChatComposerEnglish } from "../../../i18n/locales/en-chat-composer.ts";
-import { registerEnglishCatalog } from "../../../lib/reactive/i18n.ts";
 import { listen } from "../../../lib/reactive/listener.ts";
 import { projectOwner } from "../../../lib/reactive/projection.ts";
 import { ComposerDictationOwner } from "../composer-dictation.ts";
@@ -24,8 +22,6 @@ import type { ComposerQuestions } from "./chat-composer-questions.ts";
 import { composerDraftKey, getChatComposerState, isChatRunWorking } from "./chat-composer-state.ts";
 import type { ChatComposerProps } from "./chat-composer-types.ts";
 import { renderChatComposerView } from "./chat-composer-view.tsx";
-
-registerEnglishCatalog(registerChatComposerEnglish);
 
 export { isChatRunWorking, resetChatComposerState } from "./chat-composer-state.ts";
 

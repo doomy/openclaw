@@ -1,11 +1,14 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { SessionDiffFile } from "../../../../../packages/gateway-protocol/src/index.js";
 import { Icon } from "../../../components/solid/icon.tsx";
-import { t } from "../../../lib/reactive/i18n.ts";
+import { registerChatSessionEnglish } from "../../../i18n/locales/en-chat-session.ts";
+import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import { createLayoutMeasurement } from "../../../lib/reactive/layout-measurement.ts";
 import { AttachmentFileIcon } from "./chat-attachment-file-icon-solid.tsx";
 import { DiffStatChips } from "./chat-diff-stat.solid.tsx";
 import { ReviewDisclosure } from "./session-diff-disclosure.tsx";
+
+registerEnglishCatalog(registerChatSessionEnglish);
 
 type ReviewNode = { key: string; name: string; path: string } & (
   | { kind: "file"; file: SessionDiffFile; children: [] }

@@ -3,8 +3,9 @@ import { Show, createMemo, createUniqueId } from "solid-js";
 import { Icon } from "../../../components/solid/icon.tsx";
 import { Kbd } from "../../../components/solid/kbd.tsx";
 import { Menu, type MenuEntry, type MenuHandle } from "../../../components/solid/menu.tsx";
+import { registerChatComposerEnglish } from "../../../i18n/locales/en-chat-composer.ts";
 import { canSubmitBeforeChatHistory } from "../../../lib/chat/commands.ts";
-import { t } from "../../../lib/reactive/i18n.ts";
+import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import { nativeListener } from "../../../lib/solid-native-listener.ts";
 import type { ComposerDictationOwner } from "../composer-dictation.ts";
 import type { MicrophonePickerProps } from "../composer-microphone-picker.ts";
@@ -12,6 +13,8 @@ import { realtimeTalkDeviceIssueMessage } from "../talk/input.ts";
 import { ComposerContent } from "./chat-composer-content.tsx";
 import type { createChatComposerContext } from "./chat-composer-frame.ts";
 import { MicrophoneActivity, voiceStatusLabel } from "./chat-voice-activity.tsx";
+
+registerEnglishCatalog(registerChatComposerEnglish);
 
 type ChatRunControlsProps = ReturnType<typeof createChatComposerContext>["runControlsProps"];
 

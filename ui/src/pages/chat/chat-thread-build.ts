@@ -6,6 +6,7 @@ import { composeTranscriptDisplay } from "../../../../src/chat/transcript-displa
 import { readModelFallbackNotice } from "../../../../src/shared/model-fallback-notice.js";
 import type { QuestionPrompt } from "../../app/question-prompt.ts";
 import { t } from "../../i18n/index.ts";
+import { registerChatComposerEnglish } from "../../i18n/locales/en-chat-composer.ts";
 import {
   type ChatGuardianNotice,
   type ChatItem,
@@ -53,6 +54,7 @@ import {
 import {
   appendCanvasBlockToAssistantMessage,
   buildMessageItems,
+  canvasAssistantItemKey,
   canvasPreviewBaseIdentity,
   createCanvasAssistantMessage,
   extractChatMessagePreview,
@@ -85,6 +87,8 @@ import { coalesceToolActivityMessages } from "./chat-tool-activity-coalesce.ts";
 import { safeNormalizeMessage } from "./chat-turn-boundary.ts";
 import { copyLiveTerminalIdentity, readLiveTerminalRunId } from "./terminal-message-identity.ts";
 import type { ChatReasoning, CompactionStatus } from "./tool-stream-contract.ts";
+
+registerChatComposerEnglish();
 
 export type BuildChatItemsProps = ChatInputPlacementProps & {
   paneId: string;
@@ -120,15 +124,6 @@ export type BuildChatItemsProps = ChatInputPlacementProps & {
   /** Key of the signed-in viewer, who authors local user messages without a sender. */
   replyLocalPerson?: string;
 };
-
-function canvasAssistantItemKey(
-  message: unknown,
-  source: Parameters<typeof canvasPreviewBaseIdentity>[1],
-  fallback: string,
-): string {
-  const identity = canvasPreviewBaseIdentity(message, source);
-  return identity ? `canvas:${identity}` : `${fallback}:canvas`;
-}
 
 export function buildChatItems(
   props: BuildChatItemsProps,

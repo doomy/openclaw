@@ -3,7 +3,8 @@ import { For, Show, createMemo, createSignal } from "solid-js";
 import type { SessionProcessSummary } from "../../../../../packages/gateway-protocol/src/schema/session-processes.js";
 import { ElapsedTime } from "../../../components/elapsed-time.tsx";
 import { Icon } from "../../../components/solid/icon.tsx";
-import { t } from "../../../lib/reactive/i18n.ts";
+import { registerChatSessionEnglish } from "../../../i18n/locales/en-chat-session.ts";
+import { registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import {
   listSubagents,
   type ChatSubagentActivity as ChatSubagentActivityRow,
@@ -16,6 +17,8 @@ import {
 import { ChatDetailsSubagents, type ChatDetailsSubagentsProps } from "./chat-details-subagents.tsx";
 import type { ChatDetailsProps } from "./chat-details-types.ts";
 import { ChatSubagentActivity } from "./chat-subagent-activity-live.ts";
+
+registerEnglishCatalog(registerChatSessionEnglish);
 
 type Props = {
   details: ChatDetailsProps;

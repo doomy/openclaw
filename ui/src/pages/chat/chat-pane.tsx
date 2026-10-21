@@ -1,7 +1,5 @@
 import { onCleanup } from "solid-js";
-import { registerChatSessionEnglish } from "../../i18n/locales/en-chat-session.ts";
 import { useApplication } from "../../lib/reactive/context.ts";
-import { registerEnglishCatalog } from "../../lib/reactive/i18n.ts";
 import { defineSolidBridge, type SolidBridgeElement } from "../../lib/solid-bridge.ts";
 import { registerChatPane } from "./chat-pane-elements.ts";
 import {
@@ -13,8 +11,6 @@ import { ChatPaneRuntime } from "./chat-pane-render.ts";
 import { createChatPaneView } from "./chat-pane-runtime-view.tsx";
 import type { ChatPaneInputChanges } from "./chat-pane-state-owner.ts";
 import { getChatComposerState } from "./components/chat-composer-state.ts";
-
-registerEnglishCatalog(registerChatSessionEnglish);
 
 export type { ChatPaneProps } from "./chat-pane-inputs.ts";
 type PaneMethods = Pick<
