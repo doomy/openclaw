@@ -74,7 +74,7 @@ export function parsePnpmPackageManagerVersion(pin: string | null): string | und
   return /^pnpm@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:\+.*)?$/u.exec(pin ?? "")?.[1];
 }
 
-function pnpmCommandEnv(env: NodeJS.ProcessEnv | undefined, root: string): NodeJS.ProcessEnv {
+function pnpmCommandEnv(env: NodeJS.ProcessEnv | undefined, root: string): Record<string, string> {
   return {
     ...filterStringRecord(env ?? process.env),
     // Bind pnpm's manifest and lock owners even when inherited options name another checkout.
