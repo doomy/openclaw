@@ -22,12 +22,8 @@ async function viewport(width = 1440, height = 1000) {
   const { page } = await import("vitest/browser");
   await page.viewport(width, height);
 }
-function mountView(next: TranscriptsViewProps) {
-  updateView(next);
-  flush();
-}
-
-beforeEach(() => {
+beforeEach(async () => {
+  await viewport();
   props = {
     basePath: "",
     now: Date.parse(meetingEntry.updatedAt),
@@ -40,7 +36,7 @@ beforeEach(() => {
     listLoading: false,
     listError: null,
     reader: {
-      summary: meetingPage,
+      summary: structuredClone(meetingPage),
       pages: [{ ...meetingPage, utterances: [speech] }],
       loading: false,
       error: null,
@@ -55,14 +51,17 @@ beforeEach(() => {
     onDownload: vi.fn(),
   };
   const [value, setValue] = createSignal(props);
-  updateView = (next) => setValue({ ...next });
+  updateView = (next) => {
+    setValue({ ...next });
+    flush();
+  };
   ({ container } = mountSolid(() => <TranscriptsView {...value()} />));
 });
 
 describe.skipIf(!hasBrowserLayout)("meeting transcript responsive reader", () => {
   it("keeps long speaker text inside the reading column and switches to a mobile drill-in", async () => {
     await viewport(1320, 900);
-    mountView(props);
+    updateView(props);
     const library = query(".transcripts-library");
     const reader = query(".transcripts-reader");
     expect(getComputedStyle(library).display).not.toBe("none");
@@ -81,7 +80,7 @@ describe.skipIf(!hasBrowserLayout)("meeting transcript responsive reader", () =>
     expect(props.onReaderTab).not.toHaveBeenCalled();
     keydown(summary, "Enter");
     expect(props.onReaderTab).toHaveBeenCalledExactlyOnceWith("summary");
-    mountView({ ...props, readerTab: "summary" });
+    updateView({ ...props, readerTab: "summary" });
     expect(summary.getAttribute("aria-selected")).toBe("true");
     const panel = query('[role="tabpanel"]');
     expect(panel.getAttribute("aria-labelledby")).toBe(summary.id);
@@ -90,16 +89,12 @@ describe.skipIf(!hasBrowserLayout)("meeting transcript responsive reader", () =>
     expect(panel.textContent).toContain("Notes extracted using text heuristics");
   });
   it("uses themed search controls and keeps the third library entry above the fold", async () => {
-    await viewport();
-    props.list = {
-      sessions: [
-        meetingEntry,
-        { ...meetingEntry, selector: "second" },
-        { ...meetingEntry, selector: "third" },
-      ],
-      nextCursor: null,
-    };
-    mountView(props);
+    props.list!.sessions.push(
+      { ...meetingEntry, selector: "second" },
+      { ...meetingEntry, selector: "third" },
+    );
+    props.list = { ...props.list! };
+    updateView(props);
     const libraryStyle = getComputedStyle(query('input[name="query"]'));
     const readerStyle = getComputedStyle(query('input[name="find"]'));
     for (const property of ["backgroundColor", "borderRadius", "paddingLeft"] as const) {
@@ -110,8 +105,8 @@ describe.skipIf(!hasBrowserLayout)("meeting transcript responsive reader", () =>
     expect(query<HTMLDetailsElement>(".transcripts-filters details").open).toBe(false);
     const overview = "A readable summary of the decisions and follow-up work. ".repeat(5);
     props.search = "";
-    props.list.sessions[0] = { ...meetingEntry, overview };
-    mountView(props);
+    props.list!.sessions[0] = { ...meetingEntry, overview };
+    updateView(props);
     expect(container.querySelector(".transcripts-reader")).toBeNull();
     expect(rect(query(".transcripts-library")).width).toBeGreaterThan(600);
     const preview = query(".meetings-row__overview");
@@ -123,17 +118,10 @@ describe.skipIf(!hasBrowserLayout)("meeting transcript responsive reader", () =>
   });
 
   it("preserves stored Markdown notes while keeping transcript speech in its own tab", async () => {
-    await viewport();
     props.readerTab = "summary";
-    props.reader.summary = {
-      ...meetingPage,
-      summary: {
-        ...meetingPage.summary!,
-        markdown:
-          "# Design review\n\nFirst paragraph.\n\nSecond paragraph.\n\n## Next steps\n- Follow up.\n\n```md\n## Transcript\nA heading example, not recorded speech.\n```\n\n## Transcript\n- Avery: Raw recorded speech.\n",
-      },
-    };
-    mountView(props);
+    props.reader.summary!.summary!.markdown =
+      "# Design review\n\nFirst paragraph.\n\nSecond paragraph.\n\n## Next steps\n- Follow up.\n\n```md\n## Transcript\nA heading example, not recorded speech.\n```\n\n## Transcript\n- Avery: Raw recorded speech.\n";
+    updateView(props);
     const notes = query(".meetings-notes");
     expect(
       ["h2", "p", "li"].map((tag) => [...notes.querySelectorAll(tag)].map((el) => el.textContent)),

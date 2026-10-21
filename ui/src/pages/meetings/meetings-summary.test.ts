@@ -7,7 +7,6 @@ import { flush, waitForSolid } from "../../test-helpers/solid-settle.ts";
 import { meetingEntry } from "../../test-helpers/transcripts.test-support.ts";
 import { button, meetingPage, mount } from "./meetings-page.test-support.tsx";
 
-const generatedText = "Reader layout discussed.";
 const waitForText = (page: Element, text: string) =>
   waitForSolid(() => expect(page.textContent).toContain(text));
 let detail: TranscriptsGetResult;
@@ -22,7 +21,6 @@ const request = vi.fn(async (method: string) =>
 beforeEach(() => {
   detail = { ...meetingPage, summary: undefined };
   summarize.mockReset();
-  request.mockClear();
 });
 
 afterEach(() => {
@@ -46,7 +44,7 @@ it("generates on open, holds failures without retry loops, and retries explicitl
   await vi.advanceTimersByTimeAsync(9_000);
   expect(summarize).toHaveBeenCalledTimes(1);
   button(page.querySelector(".transcripts-summary")!, "Retry").click();
-  await waitForText(page, generatedText);
+  await waitForText(page, "Reader layout discussed.");
   await vi.advanceTimersByTimeAsync(15_000);
   expect(summarize).toHaveBeenCalledTimes(2);
   expect(page.textContent).not.toContain("Summary provider unavailable");
@@ -55,13 +53,10 @@ it("generates on open, holds failures without retry loops, and retries explicitl
 it.each([
   ["read-only", "No summary is available yet."],
   ["silent", "No speech captured"],
-  ["saved", generatedText],
+  ["saved", "Reader layout discussed."],
 ])("does not generate notes for a %s reader", async (kind, expected) => {
-  detail = {
-    ...meetingPage,
-    summary: kind === "saved" ? meetingPage.summary : undefined,
-    session: { ...meetingEntry, utteranceCount: kind === "silent" ? 0 : 2 },
-  };
+  detail.summary = kind === "saved" ? meetingPage.summary : undefined;
+  detail.session = { ...meetingEntry, utteranceCount: kind === "silent" ? 0 : 2 };
   const scopes = kind === "read-only" ? ["operator.read"] : ["operator.admin"];
   const { page } = mount(request, "?selector=meeting", scopes);
   await waitForSolid(() => expect(page.querySelector(".transcripts-summary")).not.toBeNull());
@@ -86,11 +81,11 @@ it.each(["selection", "client", "authorization"])("fences replaced %s", async (r
     } as ApplicationGatewaySnapshot["hello"];
     notify();
   }
-  await waitForText(page, generatedText);
+  await waitForText(page, "Reader layout discussed.");
   const late = { ...meetingPage.summary, markdown: "Late private notes" };
   pending.resolve({ ...meetingPage, summary: late });
   await pending.promise;
   flush();
   expect(page.textContent).not.toContain("Late private notes");
-  expect(page.textContent).toContain(generatedText);
+  expect(page.textContent).toContain("Reader layout discussed.");
 });
