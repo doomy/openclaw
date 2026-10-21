@@ -55,7 +55,7 @@ export function isSidebarSnapshotSettled(host: AppSidebarRenderHost): boolean {
   if (hasSidebarListFilter(host)) {
     const query = host.sessionData.sessionListQuery(host.expandedAgentId());
     const selected = context.sessions.listSnapshot(query);
-    return selected.readSucceeded === true || selected.error !== null;
+    return !selected.loading && (selected.readSucceeded === true || selected.error !== null);
   }
   return (
     !host.sessionData.sessionsLoading &&
