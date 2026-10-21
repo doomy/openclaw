@@ -6,13 +6,10 @@ import type {
   RealtimeVoiceAgentConsultRunner,
   RealtimeVoiceBridgeCreateRequest,
 } from "../../../talk/provider-types.js";
-import {
-  createOpenClawTestState,
-  type OpenClawTestState,
-} from "../../../test-utils/openclaw-test-state.js";
-import type { TalkAgentConsultLifecycleMethods } from "../client-agent-consult.types.js";
+import { createOpenClawTestState } from "../../../test-utils/openclaw-test-state.js";
 import { controlBridge, controlContext } from "../client-gateway-control.test-support.js";
 import { prepareTalkSessionTarget } from "../session-target.js";
+import { createIdleRelayProvider } from "./index.test-support.js";
 import { closeRelaySession } from "./operations.js";
 import { createTalkRealtimeRelaySession } from "./session-create.js";
 import { relaySessions, type RelaySession } from "./state.js";
@@ -32,16 +29,40 @@ vi.mock("../client-agent-consult.js", () => ({
 }));
 
 describe("native relay transcript readiness", () => {
-  let state: OpenClawTestState;
-  let relaySessionId: string | undefined;
+  let state: Awaited<ReturnType<typeof createOpenClawTestState>>;
   let ownedRelay: RelaySession | undefined;
-  const connId = "relay-confirmation-client";
+  let request: RealtimeVoiceBridgeCreateRequest;
+  let runConsult: RealtimeVoiceAgentConsultRunner;
+  let queue: RelaySession["voiceTranscriptQueue"];
 
   beforeEach(async () => {
     state = await createOpenClawTestState({ label: "relay-confirmation", applyEnv: true });
     await ensureClientVoiceAgentSessionEntry({ agentId: "main", sessionKey: "agent:main:main" });
     mocks.run.mockReset().mockResolvedValue({ text: "Read result." });
     mocks.steer.mockReset().mockResolvedValue({ text: "Read result." });
+    const cfg = { agents: { entries: { main: { workspace: state.workspaceDir } } } };
+    const createBridge = vi.fn((_request: RealtimeVoiceBridgeCreateRequest) => controlBridge());
+    const session = createTalkRealtimeRelaySession({
+      cfg,
+      context: controlContext(),
+      connId: "relay-confirmation-client",
+      sessionTarget: await prepareTalkSessionTarget(cfg, "agent:main:main"),
+      controlSource: "delegation",
+      provider: createIdleRelayProvider(createBridge),
+      providerConfig: {},
+      instructions: "Answer briefly.",
+      tools: [],
+    });
+    const relay = relaySessions.get(session.relaySessionId);
+    const captured = createBridge.mock.calls[0]?.[0];
+    const run = captured?.runAgentConsult;
+    if (!relay || !captured || !run) {
+      throw new Error("expected a registered native relay");
+    }
+    ownedRelay = relay;
+    request = captured;
+    runConsult = run;
+    queue = relay.voiceTranscriptQueue;
   });
 
   afterEach(async () => {
@@ -53,59 +74,23 @@ describe("native relay transcript readiness", () => {
     await state.cleanup();
   });
 
-  async function createHarness() {
-    const cfg = { agents: { entries: { main: { workspace: state.workspaceDir } } } };
-    let request: RealtimeVoiceBridgeCreateRequest | undefined;
-    const session = createTalkRealtimeRelaySession({
-      cfg,
-      context: controlContext(),
-      connId,
-      sessionTarget: await prepareTalkSessionTarget(cfg, "agent:main:main"),
-      controlSource: "delegation",
-      provider: {
-        id: "relay-confirmation",
-        label: "Relay confirmation",
-        isConfigured: () => true,
-        createBridge: (options) => {
-          request = options;
-          return controlBridge();
-        },
-      },
-      providerConfig: {},
-      instructions: "Answer briefly.",
-      tools: [],
-    });
-    relaySessionId = session.relaySessionId;
-    if (!relaySessionId) {
-      throw new Error("expected a relay session id");
-    }
-    const relay = relaySessions.get(relaySessionId);
-    const run: (RealtimeVoiceAgentConsultRunner & TalkAgentConsultLifecycleMethods) | undefined =
-      request?.runAgentConsult;
-    if (!relay || !request || !run) {
-      throw new Error("expected a registered native relay");
-    }
-    ownedRelay = relay;
-    return { request, run, relay };
-  }
-
   it("delegates without waiting for a future spoken confirmation", async () => {
-    const h = await createHarness();
-    h.request.onTranscript?.("user", "Create the", false);
-    expect(await h.run({ prompt: "Create the requested note" })).toEqual({ text: "Read result." });
+    request.onTranscript?.("user", "Create the", false);
+    expect(await runConsult({ prompt: "Create the requested note" })).toEqual({
+      text: "Read result.",
+    });
     expect(mocks.run).toHaveBeenCalledOnce();
   });
 
   it("drains already admitted transcript work before delegating", async () => {
-    const h = await createHarness();
     const entered = createDeferredCore();
     const release = createDeferredCore();
-    h.relay.voiceTranscriptQueue.enqueue(() => {
+    queue.enqueue(() => {
       entered.resolve();
       return release.promise;
     });
     await entered.promise;
-    const run = h.run({ prompt: "Continue the request" });
+    const run = runConsult({ prompt: "Continue the request" });
     expect(mocks.run).not.toHaveBeenCalled();
     release.resolve();
     expect(await run).toEqual({ text: "Read result." });
@@ -113,16 +98,15 @@ describe("native relay transcript readiness", () => {
   });
 
   it("cancels a held transcript drain without dispatching", async () => {
-    const h = await createHarness();
     const release = createDeferredCore();
-    h.relay.voiceTranscriptQueue.enqueue(() => release.promise);
+    queue.enqueue(() => release.promise);
     const controller = new AbortController();
-    const run = h.run({ prompt: "Continue", signal: controller.signal });
+    const run = runConsult({ prompt: "Continue", signal: controller.signal });
     const rejected = expect(run).rejects.toMatchObject({ name: "AbortError" });
     controller.abort();
     await rejected;
     expect(mocks.run).not.toHaveBeenCalled();
     release.resolve();
-    await h.relay.voiceTranscriptQueue.flush();
+    await queue.flush();
   });
 });
