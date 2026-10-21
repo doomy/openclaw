@@ -42,15 +42,15 @@ describe("gateway method registry", () => {
     expect(registry.requiresAuthenticatedProfile("example.session")).toBe(true);
     expect(registry.requiresAuthenticatedProfile("core.session")).toBe(true);
     expect(registry.getSessionAccess?.("example.session")).toEqual(sessionAccess);
-    expect(() =>
-      createGatewayMethodRegistry([{ ...plugin, profileAccess: "independent" }]),
-    ).toThrow("authenticated profile");
-    expect(() => createGatewayMethodRegistry([{ ...plugin, scope: READ_SCOPE }])).toThrow(
-      "operator.write",
-    );
-    expect(() =>
-      createGatewayMethodRegistry([{ ...plugin, scope: "operator.sessions.write" }]),
-    ).toThrow("operator.write");
+    for (const invalid of [
+      { profileAccess: "independent" },
+      { scope: READ_SCOPE },
+      { scope: "operator.sessions.write" },
+    ] satisfies Partial<GatewayMethodDescriptorInput>[]) {
+      expect(() => createGatewayMethodRegistry([{ ...plugin, ...invalid }])).toThrow(
+        "session-scoped gateway methods require operator.write and an authenticated profile",
+      );
+    }
   });
   it.each(["enumerable", "non-enumerable", "inherited"])("indexes %s metadata", (properties) => {
     const writeDescriptor = core("example.write", { scope: WRITE_SCOPE });
@@ -71,7 +71,6 @@ describe("gateway method registry", () => {
       }
     }
     const registry = createGatewayMethodRegistry([core("example.read"), writeDescriptor]);
-
     expect(registry.listMethods()).toEqual(["example.read", "example.write"]);
     expect(registry.listAdvertisedMethods()).toEqual(["example.read"]);
     expect(registry.getHandler("example.read")).toBe(handler);
@@ -113,17 +112,17 @@ describe("gateway method registry", () => {
     }
   });
 
-  it("coerces reserved plugin namespaces to admin scope", () => {
-    const descriptor = createPluginGatewayMethodDescriptor({
-      pluginId: "demo",
-      name: "config.demo",
-      handler,
-      scope: READ_SCOPE,
-    });
-
-    const registry = createGatewayMethodRegistry([descriptor]);
-
-    expect(registry.getScope("config.demo")).toBe(ADMIN_SCOPE);
+  it.each([
+    { name: "config.demo", scope: READ_SCOPE },
+    { name: "demo.ping", scope: undefined },
+  ])("enforces admin scope for plugin $name", ({ name, scope }) => {
+    const registry = createGatewayMethodRegistry([
+      createPluginGatewayMethodDescriptor({ pluginId: "demo", name, handler, scope }),
+    ]);
+    expect(registry.listMethods()).toEqual([name]);
+    expect(registry.getHandler(name)).toBe(handler);
+    expect(registry.getScope(name)).toBe(ADMIN_SCOPE);
+    expect(registry.requiresAuthenticatedProfile(name)).toBe(true);
     expect(registry.descriptors()[0]?.owner).toEqual({ kind: "plugin", pluginId: "demo" });
   });
 
@@ -135,20 +134,8 @@ describe("gateway method registry", () => {
         owner: { kind: "aux", area: "gateway-extra" },
       }),
     ]);
-
     expect(registry.getScope("config.get")).toBe(READ_SCOPE);
     expect(registry.getScope("exec.approvals.get")).toBe("operator.approvals");
-  });
-
-  it("defaults plugin methods without an explicit scope to admin", () => {
-    const registry = createGatewayMethodRegistry([
-      createPluginGatewayMethodDescriptor({ pluginId: "demo", name: "demo.ping", handler }),
-    ]);
-
-    expect(registry.listMethods()).toEqual(["demo.ping"]);
-    expect(registry.getHandler("demo.ping")).toBe(handler);
-    expect(registry.getScope("demo.ping")).toBe(ADMIN_SCOPE);
-    expect(registry.requiresAuthenticatedProfile("demo.ping")).toBe(true);
   });
 
   it("classifies every core method and defaults non-core owners fail-closed", () => {
@@ -168,8 +155,7 @@ describe("gateway method registry", () => {
     }
     expect(registry.requiresAuthenticatedProfile("users.self")).toBe(true);
     expect(registry.requiresAuthenticatedProfile("status")).toBe(false);
-    // talk.config projects the caller's profile accent; a pending GitHub
-    // identity sync must complete before the handler runs.
+    // Profile accent projection must wait for pending GitHub identity sync.
     expect(registry.requiresAuthenticatedProfile("talk.config")).toBe(true);
     expect(registry.requiresAuthenticatedProfile("talk.voice.get")).toBe(true);
     expect(registry.requiresAuthenticatedProfile("talk.voice.set")).toBe(true);
