@@ -11,6 +11,7 @@ const TOPIC_DELIVERY_CONTEXT: DeliveryContext = {
   accountId: "default",
   threadId: "4052",
 };
+const sessionKey = "agent:main:telegram:8661849123:topic:4052";
 
 function makeStateWithMocks(
   resolveOriginDeliveryContext?: CronServiceDeps["resolveOriginDeliveryContext"],
@@ -47,7 +48,7 @@ describe("cron wake() origin delivery-context carry", () => {
       await wake(state, {
         mode: "now",
         text: "finish the report",
-        sessionKey: "agent:main:telegram:8661849123:topic:4052",
+        sessionKey,
         agentId: "main",
         expectedTarget,
       }),
@@ -55,59 +56,36 @@ describe("cron wake() origin delivery-context carry", () => {
 
     expect(resolveOriginDeliveryContext).not.toHaveBeenCalled();
     expect(enqueueSessionEvent).toHaveBeenCalledExactlyOnceWith("finish the report", {
-      sessionKey: "agent:main:telegram:8661849123:topic:4052",
+      sessionKey,
       agentId: "main",
       deliveryContext: TOPIC_DELIVERY_CONTEXT,
       expectedTarget,
     });
   });
 
-  it("threads the resolved deliveryContext onto a sessionKey-targeted wake", async () => {
-    const { state, enqueueSessionEvent, resolveOriginDeliveryContext } = makeStateWithMocks(
-      () => TOPIC_DELIVERY_CONTEXT,
-    );
+  it.each([
+    { agentId: "main", resolve: async () => TOPIC_DELIVERY_CONTEXT },
+    { agentId: undefined, resolve: () => TOPIC_DELIVERY_CONTEXT },
+  ])(
+    "carries deliveryContext for a targeted wake (agentId=$agentId)",
+    async ({ agentId, resolve }) => {
+      const { state, enqueueSessionEvent, resolveOriginDeliveryContext } =
+        makeStateWithMocks(resolve);
+      const target = { sessionKey, ...(agentId ? { agentId } : {}) };
+      const result = await wake(state, {
+        mode: "now",
+        text: "check the queue",
+        ...target,
+      });
 
-    const result = await wake(state, {
-      mode: "now",
-      text: "check the queue",
-      sessionKey: "agent:main:telegram:8661849123:topic:4052",
-      agentId: "main",
-    });
-
-    expect(result).toEqual({ ok: true });
-    expect(resolveOriginDeliveryContext).toHaveBeenCalledWith({
-      sessionKey: "agent:main:telegram:8661849123:topic:4052",
-      agentId: "main",
-    });
-    expect(enqueueSessionEvent).toHaveBeenCalledExactlyOnceWith("check the queue", {
-      sessionKey: "agent:main:telegram:8661849123:topic:4052",
-      agentId: "main",
-      deliveryContext: TOPIC_DELIVERY_CONTEXT,
-    });
-  });
-
-  it("resolves and carries deliveryContext for a sessionKey-only wake (no agentId)", async () => {
-    // Pins the resolver guard against requiring both sessionKey and agentId.
-    const { state, enqueueSessionEvent, resolveOriginDeliveryContext } = makeStateWithMocks(
-      () => TOPIC_DELIVERY_CONTEXT,
-    );
-
-    const result = await wake(state, {
-      mode: "now",
-      text: "check the queue",
-      sessionKey: "agent:main:telegram:8661849123:topic:4052",
-    });
-    expect(result).toEqual({ ok: true });
-
-    expect(resolveOriginDeliveryContext).toHaveBeenCalledExactlyOnceWith({
-      sessionKey: "agent:main:telegram:8661849123:topic:4052",
-      agentId: undefined,
-    });
-    expect(enqueueSessionEvent).toHaveBeenCalledExactlyOnceWith("check the queue", {
-      sessionKey: "agent:main:telegram:8661849123:topic:4052",
-      deliveryContext: TOPIC_DELIVERY_CONTEXT,
-    });
-  });
+      expect(result).toEqual({ ok: true });
+      expect(resolveOriginDeliveryContext).toHaveBeenCalledExactlyOnceWith({ sessionKey, agentId });
+      expect(enqueueSessionEvent).toHaveBeenCalledExactlyOnceWith("check the queue", {
+        ...target,
+        deliveryContext: TOPIC_DELIVERY_CONTEXT,
+      });
+    },
+  );
 
   it("omits deliveryContext when no origin context resolves (unchanged default routing)", async () => {
     const { state, enqueueSessionEvent } = makeStateWithMocks(() => undefined);
@@ -115,12 +93,12 @@ describe("cron wake() origin delivery-context carry", () => {
     const result = await wake(state, {
       mode: "now",
       text: "check the queue",
-      sessionKey: "agent:main:telegram:8661849123:topic:4052",
+      sessionKey,
     });
     expect(result).toEqual({ ok: true });
 
     expect(enqueueSessionEvent).toHaveBeenCalledExactlyOnceWith("check the queue", {
-      sessionKey: "agent:main:telegram:8661849123:topic:4052",
+      sessionKey,
     });
     const options = enqueueSessionEvent.mock.calls[0]?.[1];
     expect(options).not.toHaveProperty("deliveryContext");

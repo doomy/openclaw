@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { createCronRegressionState } from "../../../test/helpers/cron/service-regression-fixtures.js";
 import { awaitGateBeforeSettlement, createDeferred } from "../../../test/helpers/promise.js";
 import type { SessionEventTarget } from "../../auto-reply/reply/session-event-contract.js";
-import { createTestGatewayScheduler } from "../../test-utils/gateway-scheduler-clock.js";
+import { makeCronJob } from "../delivery.test-helpers.js";
 import type { CronStoredJob } from "../types.js";
-import { createCronServiceState } from "./state.js";
 import { executeJobCore } from "./timer-execution.js";
 
 const target: SessionEventTarget = {
@@ -17,14 +17,11 @@ function createFixture(wake: "now" | "next-heartbeat", cronEnabled = true) {
   const enqueueSessionEvent = vi.fn();
   const deferSessionEvent = vi.fn();
   const captureSessionEventTarget = vi.fn(async () => target);
-  const state = createCronServiceState({
-    scheduler: createTestGatewayScheduler(),
+  const state = createCronRegressionState({
     storePath: "/unused",
     cronEnabled,
     cronConfig: { triggers: { enabled: true } },
-    log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     enqueueSystemEvent: vi.fn(),
-    requestHeartbeat: vi.fn(),
     enqueueSessionEvent,
     deferSessionEvent,
     captureSessionEventTarget,
@@ -37,19 +34,14 @@ function createFixture(wake: "now" | "next-heartbeat", cronEnabled = true) {
     })),
   });
   state.stopped = false;
-  const job: CronStoredJob = {
+  const job = makeCronJob({
     id: "script-job",
     name: "Script",
     agentId: "finn",
-    enabled: true,
-    createdAtMs: 1,
-    updatedAtMs: 1,
-    schedule: { kind: "every", everyMs: 60_000 },
     sessionTarget: "isolated",
     wakeMode: "now",
     payload: { kind: "script", script: "return { wake: 'now' }" },
-    state: {},
-  };
+  });
   return { state, job, enqueueSessionEvent, deferSessionEvent, captureSessionEventTarget };
 }
 
