@@ -1911,6 +1911,8 @@ phases; the two flags cannot be combined.
 
 Add `--presence-deltas` when measuring presence delivery preparation; without this
 capability, clients receive legacy presence snapshots and bypass delta preparation.
+The option uses the synthetic trusted-proxy Control UI clients so their connections
+participate in presence; default backend probes are excluded from the roster.
 
 Run full CPU attribution in a separate matched pass, replacing `--allocations`
 with `--workload-cpu-profile`. The new mode rejects `--allocations`, `--trace-gc`,

@@ -585,7 +585,10 @@ const authorityChannel = "openclaw-operator-authority-bench";
 const authorityEmail = "operator@authority.example.test";
 const authorityOrigin = "https://authority.example.test";
 const fixtureDirectPassword = "synthetic-connected-github-local-caller";
-const trustedProxyScenario = values["operator-access-policy"] || values["github-options-connected"];
+const trustedProxyScenario =
+  values["operator-access-policy"] ||
+  values["github-options-connected"] ||
+  values["presence-deltas"];
 const clientConnection = {
   url: `ws://127.0.0.1:${port}`,
   ...(trustedProxyScenario
